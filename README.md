@@ -21,7 +21,10 @@ Starter scaffold for a German-learning mobile app with personalized lessons, spa
 1. Copy [.env.example](./.env.example) to `.env`.
 2. Fill in `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
 3. Run the SQL in [supabase/schema.sql](./supabase/schema.sql) in your Supabase project.
-4. Install the new dependencies with `npm install` once you are ready to run the app.
+4. Run [supabase/seed.sql](./supabase/seed.sql) to populate a few starter lessons.
+5. Install the new dependencies with `npm install` once you are ready to run the app.
+
+When a new user completes onboarding, the app also creates a small starter SRS queue for that account so the review screen has immediate content.
 
 ## Next build steps
 

@@ -6,6 +6,9 @@ create table if not exists public.profiles (
   display_name text,
   target_language text not null default 'de',
   cefr_level text not null default 'A1',
+  placement_level text not null default 'A1',
+  daily_goal_minutes integer not null default 10,
+  onboarding_completed boolean not null default false,
   streak_days integer not null default 0,
   total_xp integer not null default 0,
   created_at timestamptz not null default now(),
@@ -50,6 +53,8 @@ create table if not exists public.session_logs (
   duration_seconds integer not null default 0,
   accuracy numeric(5,2),
   hint_usage integer not null default 0,
+  note text,
+  pinned boolean not null default false,
   created_at timestamptz not null default now()
 );
 
