@@ -328,6 +328,7 @@ export default function App() {
   const [journalQuery, setJournalQuery] = useState("");
   const [journalSort, setJournalSort] = useState<JournalSort>("newest");
   const [journalTag, setJournalTag] = useState<JournalTag>("all");
+  const [journalPinnedOnly, setJournalPinnedOnly] = useState(false);
   const [mainTab, setMainTab] = useState<NavTab>("dashboard");
   const currentNavTab: NavTab = screen === "dashboard"
     ? mainTab
@@ -527,7 +528,9 @@ export default function App() {
       const matchesTag = (item: {
         lesson_id: string | null;
         note: string | null;
+        pinned: boolean;
       }) => {
+        if (journalPinnedOnly && !item.pinned) return false;
         if (journalTag === "all") return true;
 
         const lessonTitle = getLessonTitleById(item.lesson_id).toLowerCase();
@@ -568,7 +571,7 @@ export default function App() {
 
       return sortedEntries;
     },
-    [recentSessions, journalQuery, journalSort, journalTag, lessons]
+    [recentSessions, journalQuery, journalSort, journalTag, journalPinnedOnly, lessons]
   );
   const filteredLessonHistory = useMemo(() => {
     const query = lessonHistoryQuery.trim().toLowerCase();
@@ -2974,6 +2977,27 @@ export default function App() {
                 </View>
               </View>
               <View style={styles.field}>
+                <Text style={styles.label}>Pinned filter</Text>
+                <View style={styles.choiceRow}>
+                  <Pressable
+                    onPress={() => setJournalPinnedOnly((value) => !value)}
+                    style={[
+                      styles.choiceChip,
+                      journalPinnedOnly && styles.choiceChipSelected,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.choiceChipText,
+                        journalPinnedOnly && styles.choiceChipTextSelected,
+                      ]}
+                    >
+                      Pinned only
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+              <View style={styles.field}>
                 <Text style={styles.label}>Journal tags</Text>
                 <View style={styles.choiceRow}>
                   {([
@@ -3127,7 +3151,9 @@ export default function App() {
                 </View>
               ) : (
                 <Text style={styles.cardDescription}>
-                  {journalQuery.trim()
+                  {journalPinnedOnly
+                    ? "No pinned reflections yet. Pin a reflection to bring it here."
+                    : journalQuery.trim()
                     ? "No journal entries match that search yet."
                     : "Your journal will fill up as you add lesson notes."}
                 </Text>
