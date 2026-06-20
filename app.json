@@ -1,0 +1,24 @@
+﻿{
+  "expo": {
+    "name": "Language Helper",
+    "slug": "language-helper",
+    "scheme": "languagehelper",
+    "platforms": ["ios", "android", "web"],
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#0E1726"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "android": {
+      "package": "com.languagehelper.app"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
