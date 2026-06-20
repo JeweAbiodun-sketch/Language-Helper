@@ -7,6 +7,7 @@ create table if not exists public.profiles (
   target_language text not null default 'de',
   cefr_level text not null default 'A1',
   placement_level text not null default 'A1',
+  placement_answers jsonb,
   daily_goal_minutes integer not null default 10,
   onboarding_completed boolean not null default false,
   streak_days integer not null default 0,
@@ -14,6 +15,9 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.profiles
+add column if not exists placement_answers jsonb;
 
 create table if not exists public.lessons (
   id uuid primary key default gen_random_uuid(),

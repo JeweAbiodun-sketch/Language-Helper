@@ -26,5 +26,41 @@ values
     'Listening: shopping dialogue',
     10,
     3
+  ),
+  (
+    '44444444-4444-4444-4444-444444444444',
+    'Daily routines',
+    'Practice time expressions and simple present-tense sentences.',
+    'A1',
+    'Vocabulary: daily routines',
+    10,
+    4
+  ),
+  (
+    '55555555-5555-5555-5555-555555555555',
+    'Family and introductions',
+    'Talk about family members and introduce yourself with confidence.',
+    'A1',
+    'Speaking: introductions',
+    11,
+    5
+  ),
+  (
+    '66666666-6666-6666-6666-666666666666',
+    'Restaurant orders',
+    'Read and respond to a short ordering conversation in a restaurant.',
+    'A2',
+    'Listening: restaurant orders',
+    12,
+    6
+  ),
+  (
+    '77777777-7777-7777-7777-777777777777',
+    'Basic word order',
+    'Build short German sentences with the correct word order.',
+    'A2',
+    'Grammar: sentence order',
+    12,
+    7
   )
 on conflict (id) do nothing;

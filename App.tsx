@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -10,9 +10,15 @@ import {
   TextInput,
   View,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { StatusBar as ExpoStatusBar } from "expo-status-bar";
 import { Session } from "@supabase/supabase-js";
 import { isSupabaseConfigured, supabase } from "./src/lib/supabase";
+import {
+  lessonQuizTemplates,
+  lessonSteps,
+  placementQuestions,
+} from "./src/content/lessonContent";
 
 type Profile = {
   id: string;
@@ -21,6 +27,13 @@ type Profile = {
   target_language: string;
   cefr_level: string;
   placement_level: string;
+  placement_answers:
+    | Array<{
+        prompt: string;
+        selected_index: number | null;
+        correct_index: number;
+      }>
+    | null;
   daily_goal_minutes: number;
   onboarding_completed: boolean;
   streak_days: number;
@@ -54,9 +67,40 @@ type SrsCard = {
   last_reviewed_at: string | null;
 };
 
+type SyncQueueItem =
+  | {
+      id: string;
+      kind: "profile_update";
+      payload: {
+        total_xp: number;
+        streak_days: number;
+      };
+    }
+  | {
+      id: string;
+      kind: "session_log";
+      payload: {
+        lesson_id: string | null;
+        duration_seconds: number;
+        accuracy: number | null;
+        hint_usage: number;
+        note: string | null;
+      };
+    }
+  | {
+      id: string;
+      kind: "srs_card_update";
+      payload: {
+        card_id: string;
+        srs_stage: number;
+        due_at: string;
+        last_reviewed_at: string;
+      };
+    };
+
 type LessonQuiz = {
   prompt: string;
-  options: string[];
+  options: readonly string[];
   correctIndex: number;
   hint: string;
 };
@@ -88,13 +132,6 @@ const skills: Skill[] = [
   { key: "Speaking", value: 47, tone: "#E76F51" },
 ];
 
-const lessonSteps = [
-  "Warm-up vocab set: food and cafes",
-  "Grammar focus: accusative articles",
-  "Listening check: a short order at a bakery",
-  "Speaking prompt: introduce yourself politely",
-];
-
 const placementChoices = ["A1", "A2", "B1", "B2"] as const;
 
 const weekLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -106,6 +143,88 @@ const lessonFilters: Array<{ key: LessonFilter; label: string }> = [
   { key: "listening", label: "Listening" },
   { key: "speaking", label: "Speaking" },
 ];
+
+function getLessonsCacheKey(userId: string) {
+  return `language-helper:lessons:${userId}`;
+}
+
+function getSrsCacheKey(userId: string) {
+  return `language-helper:srs:${userId}`;
+}
+
+async function readCachedLessons(userId: string): Promise<Lesson[] | null> {
+  try {
+    const raw = await AsyncStorage.getItem(getLessonsCacheKey(userId));
+    if (!raw) return null;
+    return JSON.parse(raw) as Lesson[];
+  } catch {
+    return null;
+  }
+}
+
+async function writeCachedLessons(userId: string, lessons: Lesson[]) {
+  try {
+    await AsyncStorage.setItem(getLessonsCacheKey(userId), JSON.stringify(lessons));
+  } catch {
+    // Cache writes are best effort.
+  }
+}
+
+async function readCachedSrsCards(userId: string): Promise<SrsCard[] | null> {
+  try {
+    const raw = await AsyncStorage.getItem(getSrsCacheKey(userId));
+    if (!raw) return null;
+    return JSON.parse(raw) as SrsCard[];
+  } catch {
+    return null;
+  }
+}
+
+async function writeCachedSrsCards(userId: string, cards: SrsCard[]) {
+  try {
+    await AsyncStorage.setItem(getSrsCacheKey(userId), JSON.stringify(cards));
+  } catch {
+    // Cache writes are best effort.
+  }
+}
+
+function getSyncQueueKey(userId: string) {
+  return `language-helper:sync:${userId}`;
+}
+
+async function readCachedSyncQueue(userId: string): Promise<SyncQueueItem[] | null> {
+  try {
+    const raw = await AsyncStorage.getItem(getSyncQueueKey(userId));
+    if (!raw) return null;
+    return JSON.parse(raw) as SyncQueueItem[];
+  } catch {
+    return null;
+  }
+}
+
+async function writeCachedSyncQueue(userId: string, queue: SyncQueueItem[]) {
+  try {
+    await AsyncStorage.setItem(getSyncQueueKey(userId), JSON.stringify(queue));
+  } catch {
+    // Cache writes are best effort.
+  }
+}
+
+function createSyncQueueId() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getSyncStatusLabel(queueCount: number) {
+  if (!isSupabaseConfigured) {
+    return "Connect Supabase to sync";
+  }
+
+  if (queueCount > 0) {
+    return `${queueCount} action${queueCount === 1 ? "" : "s"} waiting to sync`;
+  }
+
+  return "Synced to Supabase";
+}
 
 function getLessonFilter(lesson: Lesson): LessonFilter {
   const text = `${lesson.title} ${lesson.description ?? ""} ${lesson.topic}`.toLowerCase();
@@ -127,6 +246,46 @@ function getLessonFilter(lesson: Lesson): LessonFilter {
   }
 
   return "grammar";
+}
+
+function getPlacementRecommendation(score: number): (typeof placementChoices)[number] {
+  if (score <= 1) return "A1";
+  if (score === 2) return "A2";
+  if (score === 3) return "B1";
+  return "B2";
+}
+
+function buildPlacementAnswersPayload(answers: Array<number | null>) {
+  return placementQuestions.map((question, index) => ({
+    prompt: question.prompt,
+    selected_index: answers[index] ?? null,
+    correct_index: question.correctIndex,
+  }));
+}
+
+function readPlacementAnswers(
+  payload:
+    | Array<{
+        prompt: string;
+        selected_index: number | null;
+        correct_index: number;
+      }>
+    | null
+) {
+  return placementQuestions.map((_, index) => payload?.[index]?.selected_index ?? null);
+}
+
+function getPlacementWeakness(answers: Array<number | null>): LessonFilter {
+  const counts = new Map<LessonFilter, number>();
+
+  placementQuestions.forEach((question, index) => {
+    if (answers[index] === question.correctIndex) return;
+
+    counts.set(question.focus, (counts.get(question.focus) ?? 0) + 1);
+  });
+
+  const ranked = Array.from(counts.entries()).sort((left, right) => right[1] - left[1]);
+  return ranked[0]?.[0] ?? "grammar";
 }
 
 function getWeekStart(date: Date) {
@@ -186,62 +345,63 @@ function buildStreakTrack(
   });
 }
 
-function buildLessonQuiz(lesson: Lesson): LessonQuiz {
-  const topic = `${lesson.title} ${lesson.topic}`.toLowerCase();
-
-  if (topic.includes("accusative")) {
-    return {
-      prompt: "Which article fits 'I buy the bread'?",
-      options: ["den Brot", "die Brot", "das Brot"],
-      correctIndex: 0,
-      hint: "Brot is neuter, but the accusative article matters here.",
-    };
+function getLessonFollowUp(
+  lessonResult: LessonResult | null,
+  lessons: Lesson[]
+) {
+  if (!lessonResult || lessons.length === 0) {
+    return null;
   }
 
-  if (topic.includes("greeting") || topic.includes("order")) {
-    return {
-      prompt: "Which phrase is the most polite way to start a cafe order?",
-      options: ["Ich will Kaffee", "Guten Tag, ich hätte gern Kaffee", "Kaffee jetzt"],
-      correctIndex: 1,
-      hint: "Polite requests usually sound softer and more formal.",
-    };
+  const sameTrackLessons = lessons.filter(
+    (lesson) => lesson.cefr_level === lessonResult.lesson.cefr_level
+  );
+
+  if (lessonResult.correct) {
+    return (
+      sameTrackLessons.find(
+        (lesson) => lesson.sort_order > lessonResult.lesson.sort_order
+      ) ??
+      sameTrackLessons[0] ??
+      lessons[0] ??
+      null
+    );
   }
 
-  return {
-    prompt: "Which response best matches a short German practice dialogue?",
-    options: ["Ja, gerne", "Nein, niemals", "Vielleicht später"],
-    correctIndex: 0,
-    hint: "For a friendly practice exchange, a simple affirmative answer fits best.",
-  };
+  return lessonResult.lesson;
 }
 
-function buildLessonQuizAscii(lesson: Lesson): LessonQuiz {
+function buildHandoffNotice(
+  lessonResult: LessonResult | null,
+  nextLesson: Lesson | null
+) {
+  if (!lessonResult || !nextLesson) {
+    return null;
+  }
+
+  if (nextLesson.id === lessonResult.lesson.id) {
+    return `Refresh: ${nextLesson.title}.`;
+  }
+
+  if (lessonResult.correct) {
+    return `Up next: ${nextLesson.title}.`;
+  }
+
+  return `Retry: ${nextLesson.title}.`;
+}
+
+function buildLessonQuizFromContent(lesson: Lesson): LessonQuiz {
   const topic = `${lesson.title} ${lesson.topic}`.toLowerCase();
 
   if (topic.includes("accusative")) {
-    return {
-      prompt: "Which article fits 'I buy the bread'?",
-      options: ["den Brot", "die Brot", "das Brot"],
-      correctIndex: 0,
-      hint: "Brot is neuter, but the accusative article matters here.",
-    };
+    return lessonQuizTemplates.accusative;
   }
 
   if (topic.includes("greeting") || topic.includes("order")) {
-    return {
-      prompt: "Which phrase is the most polite way to start a cafe order?",
-      options: ["Ich will Kaffee", "Guten Tag, ich haette gern Kaffee", "Kaffee jetzt"],
-      correctIndex: 1,
-      hint: "Polite requests usually sound softer and more formal.",
-    };
+    return lessonQuizTemplates.greeting;
   }
 
-  return {
-    prompt: "Which response best matches a short German practice dialogue?",
-    options: ["Ja, gerne", "Nein, niemals", "Vielleicht spaeter"],
-    correctIndex: 0,
-    hint: "For a friendly practice exchange, a simple affirmative answer fits best.",
-  };
+  return lessonQuizTemplates.default;
 }
 
 function buildSrsCardHint(prompt: string): string {
@@ -268,6 +428,10 @@ export default function App() {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [selectedLevel, setSelectedLevel] = useState<(typeof placementChoices)[number]>("A1");
+  const [placementAnswers, setPlacementAnswers] = useState<Array<number | null>>(
+    () => Array.from({ length: placementQuestions.length }, () => null)
+  );
+  const [placementLevelLocked, setPlacementLevelLocked] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const [dailyGoalMinutes, setDailyGoalMinutes] = useState("10");
   const [lessons, setLessons] = useState<Lesson[]>([]);
@@ -275,12 +439,14 @@ export default function App() {
   const [lessonsError, setLessonsError] = useState<string | null>(null);
   const [lessonFilter, setLessonFilter] = useState<LessonFilter>("all");
   const [activeLesson, setActiveLesson] = useState<Lesson | null>(null);
+  const [pendingLessonFocus, setPendingLessonFocus] = useState<LessonFilter | null>(null);
   const [selectedQuizAnswer, setSelectedQuizAnswer] = useState<number | null>(
     null
   );
   const [lessonNote, setLessonNote] = useState("");
   const [lessonSaving, setLessonSaving] = useState(false);
   const [lessonResult, setLessonResult] = useState<LessonResult | null>(null);
+  const [lastLessonResult, setLastLessonResult] = useState<LessonResult | null>(null);
   const [lessonHistoryQuery, setLessonHistoryQuery] = useState("");
   const [lessonHistory, setLessonHistory] = useState<
     Array<{
@@ -330,6 +496,21 @@ export default function App() {
   const [journalTag, setJournalTag] = useState<JournalTag>("all");
   const [journalPinnedOnly, setJournalPinnedOnly] = useState(false);
   const [mainTab, setMainTab] = useState<NavTab>("dashboard");
+  const [syncQueueCount, setSyncQueueCount] = useState(0);
+  const syncQueueFlushingRef = useRef(false);
+  const autoOpenSuggestedLessonRef = useRef(false);
+  const [handoffNotice, setHandoffNotice] = useState<string | null>(null);
+  const screen: Screen = !session
+    ? "auth"
+    : lessonResult
+      ? "summary"
+      : activeLesson
+        ? "lesson"
+        : activeReviewIndex !== null
+          ? "review"
+          : profile?.onboarding_completed
+            ? "dashboard"
+            : "onboarding";
   const currentNavTab: NavTab = screen === "dashboard"
     ? mainTab
     : screen === "review"
@@ -398,7 +579,10 @@ export default function App() {
     [recentSessions]
   );
   const weeklyActiveDays = weeklyActivity.filter((day) => day.value > 0).length;
-  const weeklyMinutes = weeklyActivity.reduce((sum, day) => sum + day.minutes, 0);
+  const weeklyMinutes = weeklyActivity.reduce<number>(
+    (sum, day) => sum + day.minutes,
+    0
+  );
   const streakTrack = useMemo(
     () => buildStreakTrack(recentSessions),
     [recentSessions]
@@ -440,6 +624,46 @@ export default function App() {
     () => achievementList.find((achievement) => achievement.unlocked) ?? null,
     [achievementList]
   );
+  const syncStatusLabel = useMemo(
+    () => getSyncStatusLabel(syncQueueCount),
+    [syncQueueCount]
+  );
+  const placementScore = useMemo(
+    () =>
+      placementAnswers.reduce<number>(
+        (sum, answer, index) =>
+          sum + Number(answer === placementQuestions[index]?.correctIndex),
+        0
+      ),
+    [placementAnswers]
+  );
+  const placementRecommendation = useMemo(
+    () => getPlacementRecommendation(placementScore),
+    [placementScore]
+  );
+  const placementWeakness = useMemo(
+    () => getPlacementWeakness(placementAnswers),
+    [placementAnswers]
+  );
+  const recommendedLesson = useMemo(
+    () =>
+      lessons.find((lesson) => getLessonFilter(lesson) === placementWeakness) ??
+      lessons[0] ??
+      null,
+    [lessons, placementWeakness]
+  );
+  const lessonFollowUp = useMemo(
+    () => getLessonFollowUp(lessonResult ?? lastLessonResult, lessons),
+    [lessonResult, lastLessonResult, lessons]
+  );
+  const dashboardLessonSuggestion = useMemo(
+    () => lessonFollowUp ?? recommendedLesson,
+    [lessonFollowUp, recommendedLesson]
+  );
+  useEffect(() => {
+    if (screen !== "onboarding" || placementLevelLocked) return;
+    setSelectedLevel(placementRecommendation);
+  }, [screen, placementLevelLocked, placementRecommendation]);
   const masteredLessonCount = useMemo(
     () =>
       Array.from(lessonProgress.values()).filter(
@@ -671,6 +895,110 @@ export default function App() {
     setEditingReflectionNote("");
   }
 
+  function resetJournalFilters() {
+    setJournalQuery("");
+    setJournalSort("newest");
+    setJournalTag("all");
+    setJournalPinnedOnly(false);
+  }
+
+  async function performSyncQueueItem(item: SyncQueueItem, userId: string) {
+    if (!supabase) {
+      return "Supabase is not configured yet.";
+    }
+
+    switch (item.kind) {
+      case "profile_update": {
+        const { error } = await supabase
+          .from("profiles")
+          .update({
+            total_xp: item.payload.total_xp,
+            streak_days: item.payload.streak_days,
+          })
+          .eq("id", userId);
+
+        return error?.message ?? null;
+      }
+      case "session_log": {
+        const { error } = await supabase.from("session_logs").insert({
+          user_id: userId,
+          lesson_id: item.payload.lesson_id,
+          duration_seconds: item.payload.duration_seconds,
+          accuracy: item.payload.accuracy,
+          hint_usage: item.payload.hint_usage,
+          note: item.payload.note,
+        });
+
+        return error?.message ?? null;
+      }
+      case "srs_card_update": {
+        const { error } = await supabase
+          .from("srs_cards")
+          .update({
+            srs_stage: item.payload.srs_stage,
+            due_at: item.payload.due_at,
+            last_reviewed_at: item.payload.last_reviewed_at,
+          })
+          .eq("id", item.payload.card_id)
+          .eq("user_id", userId);
+
+        return error?.message ?? null;
+      }
+      default:
+        return "Unknown sync item.";
+    }
+  }
+
+  async function flushSyncQueue(userId: string) {
+    if (!supabase || syncQueueFlushingRef.current) return;
+
+    syncQueueFlushingRef.current = true;
+    try {
+      let queue = (await readCachedSyncQueue(userId)) ?? [];
+
+      while (queue.length > 0) {
+        const errorMessage = await performSyncQueueItem(queue[0], userId);
+        if (errorMessage) {
+          setMessage(errorMessage);
+          break;
+        }
+
+        queue = queue.slice(1);
+        await writeCachedSyncQueue(userId, queue);
+        setSyncQueueCount(queue.length);
+      }
+      setSyncQueueCount(queue.length);
+    } finally {
+      syncQueueFlushingRef.current = false;
+    }
+  }
+
+  async function enqueueSyncItems(userId: string, items: SyncQueueItem[]) {
+    const current = (await readCachedSyncQueue(userId)) ?? [];
+    const next = [...current, ...items];
+    await writeCachedSyncQueue(userId, next);
+    setSyncQueueCount(next.length);
+    await flushSyncQueue(userId);
+  }
+
+  async function handleManualSync() {
+    if (!session?.user?.id) return;
+
+    if (!supabase) {
+      setMessage("Connect Supabase to sync queued changes.");
+      return;
+    }
+
+    await flushSyncQueue(session.user.id);
+    const queue = (await readCachedSyncQueue(session.user.id)) ?? [];
+    setSyncQueueCount(queue.length);
+    setMessage(
+      queue.length > 0
+        ? `${queue.length} action${queue.length === 1 ? "" : "s"} still waiting to sync.`
+        : "Everything is synced."
+    );
+  }
+
   async function updateReflectionNote(nextNote: string | null) {
     if (!supabase || !session?.user || !editingReflectionId) {
       setMessage("Supabase is not ready yet.");
@@ -794,7 +1122,7 @@ export default function App() {
       const { data, error } = await supabase
         .from("profiles")
         .select(
-          "id,email,display_name,target_language,cefr_level,placement_level,daily_goal_minutes,onboarding_completed,streak_days,total_xp"
+          "id,email,display_name,target_language,cefr_level,placement_level,placement_answers,daily_goal_minutes,onboarding_completed,streak_days,total_xp"
         )
         .eq("id", activeSession.user.id)
         .maybeSingle();
@@ -810,6 +1138,8 @@ export default function App() {
       setProfile(data);
       setDisplayName(data?.display_name ?? "");
       setSelectedLevel((data?.placement_level as (typeof placementChoices)[number]) ?? "A1");
+      setPlacementAnswers(readPlacementAnswers(data?.placement_answers ?? null));
+      setPlacementLevelLocked(false);
       setDailyGoalMinutes(String(data?.daily_goal_minutes ?? 10));
     }
 
@@ -820,28 +1150,72 @@ export default function App() {
     };
   }, [session]);
 
-  const screen: Screen = !session
-    ? "auth"
-    : lessonResult
-      ? "summary"
-    : activeLesson
-      ? "lesson"
-    : activeReviewIndex !== null
-      ? "review"
-    : profile?.onboarding_completed
-      ? "dashboard"
-      : "onboarding";
+  useEffect(() => {
+    if (!session?.user?.id || !supabase) return;
+
+    flushSyncQueue(session.user.id);
+  }, [session?.user?.id, supabase]);
+
+  useEffect(() => {
+    if (!session?.user?.id) {
+      setSyncQueueCount(0);
+      setLastLessonResult(null);
+      setHandoffNotice(null);
+      return;
+    }
+
+    let mounted = true;
+
+    async function loadSyncQueueCount(userId: string) {
+      const queue = (await readCachedSyncQueue(userId)) ?? [];
+      if (mounted) {
+        setSyncQueueCount(queue.length);
+      }
+    }
+
+    loadSyncQueueCount(session.user.id);
+
+    return () => {
+      mounted = false;
+    };
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    if (!handoffNotice) return;
+
+    const timer = setTimeout(() => {
+      setHandoffNotice(null);
+    }, 4000);
+
+    return () => clearTimeout(timer);
+  }, [handoffNotice]);
 
   useEffect(() => {
     let mounted = true;
 
     async function loadLessons(activeProfile: Profile | null) {
-      if (!supabase || !activeProfile?.cefr_level) {
+      if (!activeProfile?.id || !activeProfile?.cefr_level) {
         if (mounted) {
           setLessons([]);
           setLessonsError(null);
           setLessonsLoading(false);
         }
+        return;
+      }
+
+      if (!supabase) {
+        const cachedLessons = await readCachedLessons(activeProfile.id);
+        if (!mounted) return;
+
+        if (cachedLessons) {
+          setLessons(cachedLessons);
+          setLessonsError("Showing saved lessons while Supabase is unavailable.");
+        } else {
+          setLessons([]);
+          setLessonsError("Supabase is unavailable and no cached lessons were found.");
+        }
+
+        setLessonsLoading(false);
         return;
       }
 
@@ -857,13 +1231,23 @@ export default function App() {
       if (!mounted) return;
 
       if (error) {
-        setLessons([]);
-        setLessonsError(error.message);
+        const cachedLessons = await readCachedLessons(activeProfile.id);
+        if (!mounted) return;
+
+        if (cachedLessons) {
+          setLessons(cachedLessons);
+          setLessonsError("Showing cached lessons while Supabase is unavailable.");
+        } else {
+          setLessons([]);
+          setLessonsError(error.message);
+        }
         setLessonsLoading(false);
         return;
       }
 
-      setLessons((data ?? []) as Lesson[]);
+      const nextLessons = (data ?? []) as Lesson[];
+      setLessons(nextLessons);
+      await writeCachedLessons(activeProfile.id, nextLessons);
       setLessonsLoading(false);
     }
 
@@ -874,14 +1258,53 @@ export default function App() {
       };
     }
 
-    setLessons([]);
-    setLessonsError(null);
-    setLessonsLoading(false);
+    if (screen === "auth") {
+      setLessons([]);
+      setLessonsError(null);
+      setLessonsLoading(false);
+    }
 
     return () => {
       mounted = false;
     };
   }, [profile, screen]);
+
+  useEffect(() => {
+    if (screen !== "dashboard" || lessons.length === 0) return;
+
+    if (autoOpenSuggestedLessonRef.current && dashboardLessonSuggestion) {
+      const notice = buildHandoffNotice(lastLessonResult, dashboardLessonSuggestion);
+      if (notice) {
+        setHandoffNotice(notice);
+      }
+      const timer = setTimeout(() => {
+        autoOpenSuggestedLessonRef.current = false;
+        handleOpenLesson(dashboardLessonSuggestion);
+      }, 700);
+
+      return () => clearTimeout(timer);
+    }
+
+    if (autoOpenSuggestedLessonRef.current) {
+      const notice = buildHandoffNotice(lastLessonResult, dashboardLessonSuggestion);
+      if (notice) {
+        setHandoffNotice(notice);
+      }
+      return;
+    }
+
+    if (!pendingLessonFocus) return;
+
+    const nextLesson =
+      lessons.find((lesson) => getLessonFilter(lesson) === pendingLessonFocus) ??
+      lessons[0] ??
+      null;
+
+    if (!nextLesson) return;
+
+    setPendingLessonFocus(null);
+    handleOpenLesson(nextLesson);
+  }, [screen, pendingLessonFocus, lessons, dashboardLessonSuggestion]);
 
   useEffect(() => {
     let mounted = true;
@@ -1016,12 +1439,28 @@ export default function App() {
     let mounted = true;
 
     async function loadReviewCards(activeProfile: Profile | null) {
-      if (!supabase || !activeProfile?.id) {
+      if (!activeProfile?.id) {
         if (mounted) {
           setSrsCards([]);
           setSrsError(null);
           setSrsLoading(false);
         }
+        return;
+      }
+
+      if (!supabase) {
+        const cachedCards = await readCachedSrsCards(activeProfile.id);
+        if (!mounted) return;
+
+        if (cachedCards) {
+          setSrsCards(cachedCards);
+          setSrsError("Showing saved review cards while Supabase is unavailable.");
+        } else {
+          setSrsCards([]);
+          setSrsError("Supabase is unavailable and no cached review cards were found.");
+        }
+
+        setSrsLoading(false);
         return;
       }
 
@@ -1038,13 +1477,23 @@ export default function App() {
       if (!mounted) return;
 
       if (error) {
-        setSrsCards([]);
-        setSrsError(error.message);
+        const cachedCards = await readCachedSrsCards(activeProfile.id);
+        if (!mounted) return;
+
+        if (cachedCards) {
+          setSrsCards(cachedCards);
+          setSrsError("Showing cached review cards while Supabase is unavailable.");
+        } else {
+          setSrsCards([]);
+          setSrsError(error.message);
+        }
         setSrsLoading(false);
         return;
       }
 
-      setSrsCards((data ?? []) as SrsCard[]);
+      const nextCards = (data ?? []) as SrsCard[];
+      setSrsCards(nextCards);
+      await writeCachedSrsCards(activeProfile.id, nextCards);
       setSrsLoading(false);
     }
 
@@ -1126,6 +1575,7 @@ export default function App() {
         display_name: displayName.trim() || profile?.display_name || greeting,
         cefr_level: selectedLevel,
         placement_level: selectedLevel,
+        placement_answers: buildPlacementAnswersPayload(placementAnswers),
         daily_goal_minutes: minutes,
         onboarding_completed: true,
       })
@@ -1159,6 +1609,8 @@ export default function App() {
 
     await supabase.from("srs_cards").insert(starterCards);
 
+    setPendingLessonFocus(placementWeakness);
+
     setProfile((current) =>
       current
         ? {
@@ -1166,6 +1618,7 @@ export default function App() {
             display_name: displayName.trim() || current.display_name,
             cefr_level: selectedLevel,
             placement_level: selectedLevel,
+            placement_answers: buildPlacementAnswersPayload(placementAnswers),
             daily_goal_minutes: minutes,
             onboarding_completed: true,
           }
@@ -1238,7 +1691,14 @@ export default function App() {
     setMessage(null);
   }
 
-  function handleCloseSummary() {
+  function handleCloseSummary(autoOpenNextLesson = false) {
+    autoOpenSuggestedLessonRef.current = autoOpenNextLesson && Boolean(lessonResult);
+    if (autoOpenNextLesson) {
+      const notice = buildHandoffNotice(lessonResult, lessonFollowUp ?? recommendedLesson);
+      if (notice) {
+        setHandoffNotice(notice);
+      }
+    }
     setLessonResult(null);
     setSelectedQuizAnswer(null);
     setActiveLesson(null);
@@ -1250,6 +1710,12 @@ export default function App() {
     setLessonResult(null);
     setSelectedQuizAnswer(null);
     setLessonNote("");
+  }
+
+  function handleContinueLesson() {
+    if (!lessonFollowUp || !lessonResult) return;
+    setLessonResult(null);
+    handleOpenLesson(lessonFollowUp);
   }
 
   function handleStartReview() {
@@ -1274,7 +1740,7 @@ export default function App() {
   }
 
   async function handleReviewCard(known: boolean) {
-    if (!supabase || !session?.user || activeReviewIndex === null) {
+    if (!session?.user || activeReviewIndex === null) {
       setMessage("Supabase is not ready yet.");
       return;
     }
@@ -1289,47 +1755,81 @@ export default function App() {
     const dueDays = known ? Math.min(14, 2 ** Math.max(nextStage, 1)) : 1;
     const dueAt = new Date();
     dueAt.setDate(dueAt.getDate() + dueDays);
+    const lastReviewedAt = new Date().toISOString();
 
     setReviewSaving(true);
     setMessage(null);
 
-    const [cardUpdateResult, reviewLogResult] = await Promise.all([
-      supabase
-        .from("srs_cards")
-        .update({
-          srs_stage: nextStage,
-          due_at: dueAt.toISOString(),
-          last_reviewed_at: new Date().toISOString(),
-        })
-        .eq("id", card.id)
-        .eq("user_id", session.user.id),
-      supabase.from("session_logs").insert({
-        user_id: session.user.id,
-        lesson_id: null,
-        duration_seconds: 60,
-        accuracy: known ? 100 : 60,
-        hint_usage: reviewRevealed ? 0 : 1,
-      }),
-    ]);
+    const reviewLogPayload = {
+      lesson_id: null,
+      duration_seconds: 60,
+      accuracy: known ? 100 : 60,
+      hint_usage: reviewRevealed ? 0 : 1,
+      note: null,
+    };
+
+    const cardUpdatePayload = {
+      card_id: card.id,
+      srs_stage: nextStage,
+      due_at: dueAt.toISOString(),
+      last_reviewed_at: lastReviewedAt,
+    };
+    let queuedForSync = !supabase;
+
+    if (supabase) {
+      const [cardUpdateResult, reviewLogResult] = await Promise.all([
+        supabase
+          .from("srs_cards")
+          .update({
+            srs_stage: nextStage,
+            due_at: dueAt.toISOString(),
+            last_reviewed_at: lastReviewedAt,
+          })
+          .eq("id", card.id)
+          .eq("user_id", session.user.id),
+        supabase.from("session_logs").insert({
+          user_id: session.user.id,
+          ...reviewLogPayload,
+        }),
+      ]);
+
+      if (cardUpdateResult.error) {
+        queuedForSync = true;
+        await enqueueSyncItems(session.user.id, [
+          { id: createSyncQueueId(), kind: "srs_card_update", payload: cardUpdatePayload },
+        ]);
+      }
+
+      if (reviewLogResult.error) {
+        queuedForSync = true;
+        await enqueueSyncItems(session.user.id, [
+          { id: createSyncQueueId(), kind: "session_log", payload: reviewLogPayload },
+        ]);
+      }
+    } else {
+      await enqueueSyncItems(session.user.id, [
+        { id: createSyncQueueId(), kind: "srs_card_update", payload: cardUpdatePayload },
+        { id: createSyncQueueId(), kind: "session_log", payload: reviewLogPayload },
+      ]);
+    }
 
     setReviewSaving(false);
 
-    if (cardUpdateResult.error) {
-      setMessage(cardUpdateResult.error.message);
-      return;
-    }
-
-    if (reviewLogResult.error) {
-      setMessage(reviewLogResult.error.message);
-      return;
-    }
-
     const remaining = srsCards.filter((_, index) => index !== activeReviewIndex);
     setSrsCards(remaining);
+    await writeCachedSrsCards(session.user.id, remaining);
+
+    if (queuedForSync) {
+      setMessage("Saved locally and queued for sync.");
+    }
 
     if (remaining.length === 0) {
       handleCloseReview();
-      setMessage("Review complete for now.");
+      setMessage(
+        queuedForSync
+          ? "Saved locally and queued for sync. Review complete for now."
+          : "Review complete for now."
+      );
       return;
     }
 
@@ -1338,7 +1838,7 @@ export default function App() {
   }
 
   async function handleCompleteLesson() {
-    if (!supabase || !session?.user || !activeLesson) {
+    if (!session?.user || !activeLesson) {
       setMessage("Supabase is not ready yet.");
       return;
     }
@@ -1348,50 +1848,70 @@ export default function App() {
       return;
     }
 
-    const quiz = buildLessonQuizAscii(activeLesson);
+    const quiz = buildLessonQuizFromContent(activeLesson);
     const isCorrect = selectedQuizAnswer === quiz.correctIndex;
     const xpEarned = isCorrect ? 25 : 10;
     const accuracy = isCorrect ? 100 : 70;
+    const nextTotalXp = (profile?.total_xp ?? 0) + xpEarned;
+    const nextStreakDays = (profile?.streak_days ?? 0) + 1;
 
     setLessonSaving(true);
     setMessage(null);
 
-    const [sessionLogResult, profileUpdateResult] = await Promise.all([
-      supabase.from("session_logs").insert({
-        user_id: session.user.id,
-        lesson_id: activeLesson.id,
-        duration_seconds: activeLesson.estimated_minutes * 60,
-        accuracy,
-        hint_usage: selectedQuizAnswer === null ? 1 : 0,
-        note: lessonNote.trim() || null,
-      }),
-      supabase
-        .from("profiles")
-        .update({
-          total_xp: (profile?.total_xp ?? 0) + xpEarned,
-          streak_days: (profile?.streak_days ?? 0) + 1,
-        })
-        .eq("id", session.user.id),
-    ]);
+    const sessionLogPayload = {
+      lesson_id: activeLesson.id,
+      duration_seconds: activeLesson.estimated_minutes * 60,
+      accuracy,
+      hint_usage: selectedQuizAnswer === null ? 1 : 0,
+      note: lessonNote.trim() || null,
+    };
+
+    const profileUpdatePayload = {
+      total_xp: nextTotalXp,
+      streak_days: nextStreakDays,
+    };
+    let queuedForSync = !supabase;
+
+    if (supabase) {
+      const [sessionLogResult, profileUpdateResult] = await Promise.all([
+        supabase.from("session_logs").insert({
+          user_id: session.user.id,
+          ...sessionLogPayload,
+        }),
+        supabase
+          .from("profiles")
+          .update(profileUpdatePayload)
+          .eq("id", session.user.id),
+      ]);
+
+      if (sessionLogResult.error) {
+        queuedForSync = true;
+        await enqueueSyncItems(session.user.id, [
+          { id: createSyncQueueId(), kind: "session_log", payload: sessionLogPayload },
+        ]);
+      }
+
+      if (profileUpdateResult.error) {
+        queuedForSync = true;
+        await enqueueSyncItems(session.user.id, [
+          { id: createSyncQueueId(), kind: "profile_update", payload: profileUpdatePayload },
+        ]);
+      }
+    } else {
+      await enqueueSyncItems(session.user.id, [
+        { id: createSyncQueueId(), kind: "session_log", payload: sessionLogPayload },
+        { id: createSyncQueueId(), kind: "profile_update", payload: profileUpdatePayload },
+      ]);
+    }
 
     setLessonSaving(false);
-
-    if (sessionLogResult.error) {
-      setMessage(sessionLogResult.error.message);
-      return;
-    }
-
-    if (profileUpdateResult.error) {
-      setMessage(profileUpdateResult.error.message);
-      return;
-    }
 
     setProfile((current) =>
       current
         ? {
             ...current,
-            total_xp: (current.total_xp ?? 0) + xpEarned,
-            streak_days: (current.streak_days ?? 0) + 1,
+            total_xp: nextTotalXp,
+            streak_days: nextStreakDays,
         }
         : current
     );
@@ -1401,6 +1921,15 @@ export default function App() {
       xpEarned,
       accuracy,
     });
+    setLastLessonResult({
+      lesson: activeLesson,
+      correct: isCorrect,
+      xpEarned,
+      accuracy,
+    });
+    if (queuedForSync) {
+      setMessage("Saved locally and queued for sync.");
+    }
     handleCloseLesson();
   }
 
@@ -1422,6 +1951,7 @@ export default function App() {
         display_name: displayName.trim() || profile?.display_name || "learner",
         cefr_level: selectedLevel,
         placement_level: selectedLevel,
+        placement_answers: buildPlacementAnswersPayload(placementAnswers),
         daily_goal_minutes: minutes,
       })
       .eq("id", session.user.id);
@@ -1440,6 +1970,7 @@ export default function App() {
             display_name: displayName.trim() || current.display_name,
             cefr_level: selectedLevel,
             placement_level: selectedLevel,
+            placement_answers: buildPlacementAnswersPayload(placementAnswers),
             daily_goal_minutes: minutes,
           }
         : current
@@ -1450,6 +1981,8 @@ export default function App() {
   async function handleSignOut() {
     if (!supabase) return;
     await supabase.auth.signOut();
+    setLastLessonResult(null);
+    setHandoffNotice(null);
     setMessage("Signed out.");
   }
 
@@ -1587,8 +2120,7 @@ export default function App() {
             </View>
             <Text style={styles.title}>Quick placement check</Text>
             <Text style={styles.subtitle}>
-              Pick your starting level and daily pace so we can shape the first
-              lessons around your real routine.
+              Answer a few quick questions, then choose a starting level and daily pace so we can shape the first lessons around your real routine.
             </Text>
             <View style={styles.connectionPill}>
               <Text style={styles.connectionPillText}>
@@ -1596,6 +2128,49 @@ export default function App() {
               </Text>
             </View>
           </View>
+
+          <SectionCard
+            title="Placement quiz"
+            eyebrow="Adaptive start"
+            description="We use a tiny check to suggest your starting CEFR level. You can still override it below."
+          >
+            <View style={styles.quizColumn}>
+              {placementQuestions.map((question, questionIndex) => (
+                <View key={question.prompt} style={styles.field}>
+                  <Text style={styles.label}>
+                    {questionIndex + 1}. {question.prompt}
+                  </Text>
+                  <View style={styles.choiceRow}>
+                    {question.options.map((option, optionIndex) => (
+                      <ChoiceChip
+                        key={option}
+                        label={option}
+                        selected={placementAnswers[questionIndex] === optionIndex}
+                        onPress={() =>
+                          setPlacementAnswers((current) =>
+                            current.map((answer, index) =>
+                              index === questionIndex ? optionIndex : answer
+                            )
+                          )
+                        }
+                      />
+                    ))}
+                  </View>
+                </View>
+              ))}
+            </View>
+            <View style={styles.reviewSummaryRow}>
+              <StatCard label="Score" value={`${placementScore}/${placementQuestions.length}`} />
+              <StatCard label="Suggested" value={placementRecommendation} />
+            </View>
+            <PrimaryButton
+              label={`Use ${placementRecommendation} level`}
+              onPress={() => {
+                setSelectedLevel(placementRecommendation);
+                setPlacementLevelLocked(false);
+              }}
+            />
+          </SectionCard>
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Finish your profile</Text>
@@ -1619,7 +2194,10 @@ export default function App() {
                       key={choice}
                       label={choice}
                       selected={selectedLevel === choice}
-                      onPress={() => setSelectedLevel(choice)}
+                      onPress={() => {
+                        setSelectedLevel(choice);
+                        setPlacementLevelLocked(true);
+                      }}
                     />
                   ))}
                 </View>
@@ -1661,7 +2239,7 @@ export default function App() {
   }
 
   if (screen === "lesson" && activeLesson) {
-    const quiz = buildLessonQuizAscii(activeLesson);
+    const quiz = buildLessonQuizFromContent(activeLesson);
 
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -1681,6 +2259,7 @@ export default function App() {
                 {activeLesson.estimated_minutes} minute lesson
               </Text>
             </View>
+            {handoffNotice ? <Text style={styles.cardDescription}>{handoffNotice}</Text> : null}
             <PrimaryButton label="Back to dashboard" onPress={handleCloseLesson} />
           </View>
 
@@ -2108,9 +2687,40 @@ export default function App() {
             </View>
           </SectionCard>
 
+          <SectionCard
+            title="Next step"
+            eyebrow="Adaptive path"
+            description="Your result helps pick the next lesson or a repeat pass."
+          >
+            <Text style={styles.summaryBoxTitle}>
+              {lessonFollowUp && lessonFollowUp.id !== lessonResult.lesson.id
+                ? `Continue with ${lessonFollowUp.title}.`
+                : "Repeat this lesson once more to lock it in."}
+            </Text>
+            <Text style={styles.summaryBoxText}>
+              {lessonResult.correct
+                ? "You answered correctly, so the app is nudging you forward to the next lesson in this CEFR track."
+                : "A repeat gives you one more pass at the same material before moving on."}
+            </Text>
+          </SectionCard>
+
           <View style={styles.heroRow}>
-            <PrimaryButton label="Back to dashboard" onPress={handleCloseSummary} />
-            <PrimaryButton label="Practice again" onPress={handlePracticeAgain} />
+            <PrimaryButton
+              label="Back to dashboard"
+              onPress={() => handleCloseSummary(true)}
+            />
+            <PrimaryButton
+              label={
+                lessonFollowUp && lessonFollowUp.id !== lessonResult.lesson.id
+                  ? `Continue to ${lessonFollowUp.title}`
+                  : "Practice again"
+              }
+              onPress={
+                lessonFollowUp && lessonFollowUp.id !== lessonResult.lesson.id
+                  ? handleContinueLesson
+                  : handlePracticeAgain
+              }
+            />
           </View>
           <TabBar activeTab={currentNavTab} onHome={handleGoHome} onLessons={handleGoLessons} onReview={handleGoReview} onJournal={handleGoJournal} onProgress={handleGoProgress} />
         </ScrollView>
@@ -2137,6 +2747,15 @@ export default function App() {
               {profile?.cefr_level ?? "A1"} learning path
             </Text>
           </View>
+          <View style={styles.connectionPill}>
+            <Text style={styles.connectionPillText}>
+              {syncStatusLabel}
+            </Text>
+          </View>
+          <PrimaryButton
+            label={syncQueueCount > 0 ? `Sync now (${syncQueueCount})` : "Sync now"}
+            onPress={handleManualSync}
+          />
           <PrimaryButton label="Sign out" onPress={handleSignOut} />
         </View>
 
@@ -2807,16 +3426,21 @@ export default function App() {
             <SectionCard
               title="Suggested track"
               eyebrow="Recommended next"
-              description="Your current level determines the lesson set we show first."
+              description="Next lesson at a glance."
             >
-              <View style={styles.reviewSummaryRow}>
-                <StatCard label="Level" value={profile?.cefr_level ?? "A1"} />
-                <StatCard label="Goal" value={`${profile?.daily_goal_minutes ?? 10} min`} />
-              </View>
+              <Text style={styles.cardDescription}>
+                {dashboardLessonSuggestion
+                  ? `${dashboardLessonSuggestion.title} · ${dashboardLessonSuggestion.cefr_level}`
+                  : "No lesson suggestion yet."}
+              </Text>
               <PrimaryButton
-                label={filteredLessons.length > 0 ? "Open first lesson" : "No lessons loaded"}
-                onPress={() => filteredLessons[0] && handleOpenLesson(filteredLessons[0])}
-                disabled={filteredLessons.length === 0}
+                label={
+                  dashboardLessonSuggestion
+                    ? "Open next lesson"
+                    : "No lessons loaded"
+                }
+                onPress={() => dashboardLessonSuggestion && handleOpenLesson(dashboardLessonSuggestion)}
+                disabled={!dashboardLessonSuggestion}
               />
             </SectionCard>
           </>
@@ -2997,6 +3621,15 @@ export default function App() {
                   </Pressable>
                 </View>
               </View>
+              <Pressable
+                onPress={resetJournalFilters}
+                style={({ pressed }) => [
+                  styles.primaryButton,
+                  pressed && styles.primaryButtonPressed,
+                ]}
+              >
+                <Text style={styles.primaryButtonText}>Reset filters</Text>
+              </Pressable>
               <View style={styles.field}>
                 <Text style={styles.label}>Journal tags</Text>
                 <View style={styles.choiceRow}>
@@ -3172,7 +3805,10 @@ export default function App() {
               <View style={styles.profileHeader}>
                 <View style={styles.profileAvatar}>
                   <Text style={styles.profileAvatarText}>
-                    {getProfileInitials(profile?.display_name ?? displayName, profile?.email)}
+                    {getProfileInitials(
+                      profile?.display_name ?? displayName,
+                      profile?.email ?? null
+                    )}
                   </Text>
                 </View>
                 <View style={styles.profileHeaderContent}>
@@ -3180,7 +3816,7 @@ export default function App() {
                     {profile?.display_name ?? greeting}
                   </Text>
                   <Text style={styles.profileHeaderMeta}>
-                    {profile?.email ?? "Signed in and syncing"}
+                    {profile?.email ?? syncStatusLabel}
                   </Text>
                   <View style={styles.profileHeaderRow}>
                     <View style={styles.profileBadge}>
@@ -3486,8 +4122,8 @@ const styles = StyleSheet.create({
   },
   container: {
     padding: 20,
-    paddingBottom: 40,
-    gap: 16,
+    paddingBottom: 34,
+    gap: 12,
     backgroundColor: "#0E1726",
   },
   centeredNotice: {
@@ -3525,32 +4161,32 @@ const styles = StyleSheet.create({
   hero: {
     backgroundColor: "#13233D",
     borderRadius: 28,
-    padding: 20,
+    padding: 16,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(255,255,255,0.05)",
   },
   badge: {
     alignSelf: "flex-start",
-    backgroundColor: "rgba(76,125,255,0.16)",
+    backgroundColor: "rgba(76,125,255,0.12)",
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 6,
-    marginBottom: 14,
+    marginBottom: 12,
   },
   badgeText: {
     color: "#BFD0FF",
     fontSize: 12,
     fontWeight: "700",
-    letterSpacing: 0.6,
+    letterSpacing: 0.5,
     textTransform: "uppercase",
   },
   connectionPill: {
     alignSelf: "flex-start",
-    backgroundColor: "rgba(42,157,143,0.15)",
+    backgroundColor: "rgba(42,157,143,0.12)",
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    marginBottom: 18,
+    marginBottom: 14,
   },
   connectionPillText: {
     color: "#BDF0E6",
@@ -3631,16 +4267,16 @@ const styles = StyleSheet.create({
   },
   title: {
     color: "#F6F9FF",
-    fontSize: 34,
-    lineHeight: 40,
+    fontSize: 31,
+    lineHeight: 37,
     fontWeight: "800",
-    marginBottom: 10,
+    marginBottom: 8,
   },
   subtitle: {
-    color: "#A9B7D1",
+    color: "#B0BDD2",
     fontSize: 16,
     lineHeight: 23,
-    marginBottom: 18,
+    marginBottom: 16,
   },
   heroRow: {
     flexDirection: "row",
@@ -3650,29 +4286,29 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#182947",
     borderRadius: 18,
-    paddingVertical: 14,
-    paddingHorizontal: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
+    borderColor: "rgba(255,255,255,0.04)",
   },
   statLabel: {
     color: "#95A6C7",
-    fontSize: 12,
-    marginBottom: 6,
+    fontSize: 11,
+    marginBottom: 4,
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
   statValue: {
     color: "#FFFFFF",
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: "700",
   },
   card: {
     backgroundColor: "#101B2E",
-    borderRadius: 24,
-    padding: 18,
+    borderRadius: 22,
+    padding: 16,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
+    borderColor: "rgba(255,255,255,0.04)",
   },
   eyebrow: {
     color: "#7F97C7",
@@ -3684,18 +4320,18 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     color: "#F7FAFF",
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: "800",
-    marginBottom: 6,
+    marginBottom: 4,
   },
   cardDescription: {
     color: "#9AAAC6",
     fontSize: 14,
     lineHeight: 20,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   cardBody: {
-    gap: 12,
+    gap: 10,
   },
   reviewSummaryRow: {
     flexDirection: "row",
@@ -4129,27 +4765,27 @@ const styles = StyleSheet.create({
   lessonStepRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
   },
   lessonPrompt: {
     color: "#F6F9FF",
-    fontSize: 18,
-    lineHeight: 24,
+    fontSize: 17,
+    lineHeight: 23,
     fontWeight: "700",
   },
   reviewMetaRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
+    gap: 10,
   },
   reviewAnswerBox: {
     backgroundColor: "#101B2E",
     borderRadius: 16,
-    padding: 14,
-    gap: 8,
+    padding: 12,
+    gap: 6,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
+    borderColor: "rgba(255,255,255,0.04)",
   },
   reviewAnswerLabel: {
     color: "#7F97C7",
@@ -4166,10 +4802,10 @@ const styles = StyleSheet.create({
   summaryBox: {
     backgroundColor: "#162640",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
+    borderColor: "rgba(255,255,255,0.04)",
     borderRadius: 18,
-    padding: 14,
-    gap: 8,
+    padding: 12,
+    gap: 6,
   },
   summaryBoxTitle: {
     color: "#F6F9FF",
@@ -4187,8 +4823,8 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1,
     borderColor: "rgba(76,125,255,0.18)",
-    padding: 16,
-    gap: 10,
+    padding: 14,
+    gap: 8,
   },
   focusTitle: {
     color: "#F6F9FF",
@@ -4373,7 +5009,7 @@ const styles = StyleSheet.create({
   pillRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
+    gap: 8,
   },
   pill: {
     backgroundColor: "#1A2740",
