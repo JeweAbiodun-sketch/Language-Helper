@@ -15,10 +15,12 @@ import { StatusBar as ExpoStatusBar } from "expo-status-bar";
 import { Session } from "@supabase/supabase-js";
 import { isSupabaseConfigured, supabase } from "./src/lib/supabase";
 import {
-  lessonQuizTemplates,
+  getLessonContent,
   lessonSteps,
   placementQuestions,
+  type LessonContent,
 } from "./src/content/lessonContent";
+import LessonVideo from "./src/components/LessonVideo";
 
 type Profile = {
   id: string;
@@ -54,6 +56,7 @@ type Lesson = {
   description: string | null;
   cefr_level: string;
   topic: string;
+  content_key: string | null;
   estimated_minutes: number;
   sort_order: number;
 };
@@ -98,12 +101,7 @@ type SyncQueueItem =
       };
     };
 
-type LessonQuiz = {
-  prompt: string;
-  options: readonly string[];
-  correctIndex: number;
-  hint: string;
-};
+type LessonPhase = "learn" | "practice";
 
 type LessonResult = {
   lesson: Lesson;
@@ -390,20 +388,6 @@ function buildHandoffNotice(
   return `Retry: ${nextLesson.title}.`;
 }
 
-function buildLessonQuizFromContent(lesson: Lesson): LessonQuiz {
-  const topic = `${lesson.title} ${lesson.topic}`.toLowerCase();
-
-  if (topic.includes("accusative")) {
-    return lessonQuizTemplates.accusative;
-  }
-
-  if (topic.includes("greeting") || topic.includes("order")) {
-    return lessonQuizTemplates.greeting;
-  }
-
-  return lessonQuizTemplates.default;
-}
-
 function buildSrsCardHint(prompt: string): string {
   const lower = prompt.toLowerCase();
 
@@ -440,9 +424,8 @@ export default function App() {
   const [lessonFilter, setLessonFilter] = useState<LessonFilter>("all");
   const [activeLesson, setActiveLesson] = useState<Lesson | null>(null);
   const [pendingLessonFocus, setPendingLessonFocus] = useState<LessonFilter | null>(null);
-  const [selectedQuizAnswer, setSelectedQuizAnswer] = useState<number | null>(
-    null
-  );
+  const [lessonPhase, setLessonPhase] = useState<LessonPhase>("learn");
+  const [quizAnswers, setQuizAnswers] = useState<Array<number | null>>([]);
   const [lessonNote, setLessonNote] = useState("");
   const [lessonSaving, setLessonSaving] = useState(false);
   const [lessonResult, setLessonResult] = useState<LessonResult | null>(null);
@@ -1224,7 +1207,7 @@ export default function App() {
 
       const { data, error } = await supabase
         .from("lessons")
-        .select("id,title,description,cefr_level,topic,estimated_minutes,sort_order")
+        .select("id,title,description,cefr_level,topic,content_key,estimated_minutes,sort_order")
         .eq("cefr_level", activeProfile.cefr_level)
         .order("sort_order", { ascending: true });
 
@@ -1629,7 +1612,10 @@ export default function App() {
 
   function handleOpenLesson(lesson: Lesson) {
     setActiveLesson(lesson);
-    setSelectedQuizAnswer(null);
+    setLessonPhase("learn");
+    setQuizAnswers(
+      Array.from({ length: getLessonContent(lesson.content_key).quiz.length }, () => null)
+    );
     setLessonNote("");
     setLessonHistoryQuery("");
     setMessage(null);
@@ -1637,7 +1623,8 @@ export default function App() {
 
   function handleCloseLesson() {
     setActiveLesson(null);
-    setSelectedQuizAnswer(null);
+    setLessonPhase("learn");
+    setQuizAnswers([]);
     setLessonNote("");
   }
 
@@ -1700,7 +1687,8 @@ export default function App() {
       }
     }
     setLessonResult(null);
-    setSelectedQuizAnswer(null);
+    setQuizAnswers([]);
+    setLessonPhase("learn");
     setActiveLesson(null);
   }
 
@@ -1708,7 +1696,13 @@ export default function App() {
     if (!lessonResult) return;
     setActiveLesson(lessonResult.lesson);
     setLessonResult(null);
-    setSelectedQuizAnswer(null);
+    setLessonPhase("practice");
+    setQuizAnswers(
+      Array.from(
+        { length: getLessonContent(lessonResult.lesson.content_key).quiz.length },
+        () => null
+      )
+    );
     setLessonNote("");
   }
 
@@ -1843,15 +1837,24 @@ export default function App() {
       return;
     }
 
-    if (selectedQuizAnswer === null) {
-      setMessage("Choose an answer before completing the lesson.");
+    const content = getLessonContent(activeLesson.content_key);
+
+    if (quizAnswers.some((answer) => answer === null)) {
+      setMessage("Answer every question before completing the lesson.");
       return;
     }
 
-    const quiz = buildLessonQuizFromContent(activeLesson);
-    const isCorrect = selectedQuizAnswer === quiz.correctIndex;
+    const correctCount = content.quiz.reduce(
+      (count, question, index) =>
+        count + (quizAnswers[index] === question.correctIndex ? 1 : 0),
+      0
+    );
+    const accuracy =
+      content.quiz.length > 0
+        ? Math.round((correctCount / content.quiz.length) * 100)
+        : 0;
+    const isCorrect = accuracy >= 80;
     const xpEarned = isCorrect ? 25 : 10;
-    const accuracy = isCorrect ? 100 : 70;
     const nextTotalXp = (profile?.total_xp ?? 0) + xpEarned;
     const nextStreakDays = (profile?.streak_days ?? 0) + 1;
 
@@ -1862,7 +1865,7 @@ export default function App() {
       lesson_id: activeLesson.id,
       duration_seconds: activeLesson.estimated_minutes * 60,
       accuracy,
-      hint_usage: selectedQuizAnswer === null ? 1 : 0,
+      hint_usage: 0,
       note: lessonNote.trim() || null,
     };
 
@@ -2239,7 +2242,7 @@ export default function App() {
   }
 
   if (screen === "lesson" && activeLesson) {
-    const quiz = buildLessonQuizFromContent(activeLesson);
+    const content = getLessonContent(activeLesson.content_key);
 
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -2256,44 +2259,83 @@ export default function App() {
             </Text>
             <View style={styles.connectionPill}>
               <Text style={styles.connectionPillText}>
-                {activeLesson.estimated_minutes} minute lesson
+                {activeLesson.estimated_minutes} minute lesson · {lessonPhase === "learn" ? "Step 1: Watch & learn" : "Step 2: Practice"}
               </Text>
             </View>
             {handoffNotice ? <Text style={styles.cardDescription}>{handoffNotice}</Text> : null}
             <PrimaryButton label="Back to dashboard" onPress={handleCloseLesson} />
           </View>
 
+          {lessonPhase === "learn" ? (
             <SectionCard
-              title="Practice prompt"
-              eyebrow="Lesson step"
-              description="Answer one quick question, then mark the lesson complete."
+              title="Watch & learn"
+              eyebrow="Lesson step 1 of 2"
+              description={content.learnIntro}
             >
-            <Text style={styles.lessonPrompt}>{quiz.prompt}</Text>
-            <View style={styles.quizColumn}>
-              {quiz.options.map((option, index) => (
-                <ChoiceChip
-                  key={option}
-                  label={option}
-                  selected={selectedQuizAnswer === index}
-                  onPress={() => setSelectedQuizAnswer(index)}
-                />
-              ))}
-            </View>
-            <Text style={styles.lessonHint}>Hint: {quiz.hint}</Text>
-            <View style={styles.field}>
-              <Text style={styles.label}>Session note</Text>
-              <TextInput
-                value={lessonNote}
-                onChangeText={setLessonNote}
-                placeholder="What felt tricky or worth remembering?"
-                placeholderTextColor="#7384A6"
-                style={styles.textArea}
-                multiline
-                numberOfLines={3}
-                textAlignVertical="top"
+              <LessonVideo videoId={content.videoId} title={content.videoTitle} />
+              <View style={styles.learnNotesColumn}>
+                {content.learnNotes.map((note) => (
+                  <View key={note.heading} style={styles.learnNoteCard}>
+                    <Text style={styles.learnNoteHeading}>{note.heading}</Text>
+                    <Text style={styles.learnNoteBody}>{note.body}</Text>
+                  </View>
+                ))}
+              </View>
+              <PrimaryButton
+                label="Start practice"
+                onPress={() => setLessonPhase("practice")}
               />
-            </View>
-          </SectionCard>
+            </SectionCard>
+          ) : (
+            <SectionCard
+              title="Practice"
+              eyebrow="Lesson step 2 of 2"
+              description="Answer each question, then mark the lesson complete."
+            >
+              <View style={styles.quizColumn}>
+                {content.quiz.map((question, questionIndex) => (
+                  <View key={question.id} style={styles.field}>
+                    <Text style={styles.label}>
+                      {questionIndex + 1}. {question.prompt}
+                    </Text>
+                    <View style={styles.choiceRow}>
+                      {question.options.map((option, optionIndex) => (
+                        <ChoiceChip
+                          key={option}
+                          label={option}
+                          selected={quizAnswers[questionIndex] === optionIndex}
+                          onPress={() =>
+                            setQuizAnswers((current) =>
+                              current.map((answer, index) =>
+                                index === questionIndex ? optionIndex : answer
+                              )
+                            )
+                          }
+                        />
+                      ))}
+                    </View>
+                    <Text style={styles.lessonHint}>Hint: {question.hint}</Text>
+                  </View>
+                ))}
+              </View>
+              <Pressable onPress={() => setLessonPhase("learn")}>
+                <Text style={styles.inlineLink}>Back to the video and notes</Text>
+              </Pressable>
+              <View style={styles.field}>
+                <Text style={styles.label}>Session note</Text>
+                <TextInput
+                  value={lessonNote}
+                  onChangeText={setLessonNote}
+                  placeholder="What felt tricky or worth remembering?"
+                  placeholderTextColor="#7384A6"
+                  style={styles.textArea}
+                  multiline
+                  numberOfLines={3}
+                  textAlignVertical="top"
+                />
+              </View>
+            </SectionCard>
+          )}
 
           <SectionCard
             title="Your history"
@@ -2494,26 +2536,15 @@ export default function App() {
             ) : null}
           </SectionCard>
 
-          <SectionCard
-            title="What to focus on"
-            eyebrow="Lesson plan"
-            description="A simple three-part loop keeps each session short and consistent."
-          >
-            <View style={styles.pillRow}>
-              <Pill label="Vocabulary" />
-              <Pill label="Grammar" />
-              <Pill label="Listening" />
-              <Pill label="Speaking" />
-            </View>
-          </SectionCard>
-
           {message ? <InfoBanner text={message} /> : null}
 
-          <PrimaryButton
-            label={lessonSaving ? "Saving lesson..." : "Complete lesson"}
-            onPress={handleCompleteLesson}
-            disabled={lessonSaving}
-          />
+          {lessonPhase === "practice" ? (
+            <PrimaryButton
+              label={lessonSaving ? "Saving lesson..." : "Complete lesson"}
+              onPress={handleCompleteLesson}
+              disabled={lessonSaving || quizAnswers.some((answer) => answer === null)}
+            />
+          ) : null}
           <TabBar activeTab={currentNavTab} onHome={handleGoHome} onLessons={handleGoLessons} onReview={handleGoReview} onJournal={handleGoJournal} onProgress={handleGoProgress} />
         </ScrollView>
       </SafeAreaView>
@@ -4839,6 +4870,28 @@ const styles = StyleSheet.create({
   },
   quizColumn: {
     gap: 10,
+  },
+  learnNotesColumn: {
+    gap: 10,
+    marginTop: 4,
+  },
+  learnNoteCard: {
+    backgroundColor: "#162640",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+    borderRadius: 16,
+    padding: 14,
+    gap: 6,
+  },
+  learnNoteHeading: {
+    color: "#F6F9FF",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  learnNoteBody: {
+    color: "#C6D1E8",
+    fontSize: 14,
+    lineHeight: 20,
   },
   lessonHint: {
     color: "#A9B7D1",
