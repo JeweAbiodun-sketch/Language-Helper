@@ -14,7 +14,13 @@ import {
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { StatusBar as ExpoStatusBar } from "expo-status-bar";
+import * as WebBrowser from "expo-web-browser";
+import * as Linking from "expo-linking";
+import { makeRedirectUri } from "expo-auth-session";
+import * as QueryParams from "expo-auth-session/build/QueryParams";
 import { Session } from "@supabase/supabase-js";
+
+WebBrowser.maybeCompleteAuthSession();
 import { isSupabaseConfigured, supabase } from "./src/lib/supabase";
 import {
   getLessonContent,
@@ -433,6 +439,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("sign-in");
+  const [showEmailForm, setShowEmailForm] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -1121,6 +1128,13 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const sub = Linking.addEventListener("url", ({ url }: { url: string }) => {
+      createSessionFromUrl(url);
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
     let mounted = true;
 
     async function loadProfile(activeSession: Session | null) {
@@ -1578,6 +1592,58 @@ export default function App() {
     const fallback = profile?.email?.split("@")[0] ?? "learner";
     return profile?.display_name ?? fallback;
   }, [profile]);
+
+  async function createSessionFromUrl(url: string) {
+    if (!supabase) return;
+    const { params, errorCode } = QueryParams.getQueryParams(url);
+    if (errorCode) {
+      setMessage(errorCode);
+      return;
+    }
+    const { access_token, refresh_token } = params;
+    if (!access_token || !refresh_token) return;
+
+    const { error } = await supabase.auth.setSession({
+      access_token,
+      refresh_token,
+    });
+    if (error) {
+      setMessage(error.message);
+    }
+  }
+
+  async function handleGoogleSignIn() {
+    if (!supabase) {
+      setMessage("Supabase is not configured yet.");
+      return;
+    }
+
+    setSaving(true);
+    setMessage(null);
+
+    const redirectTo = makeRedirectUri();
+
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo,
+        skipBrowserRedirect: true,
+      },
+    });
+
+    if (error || !data?.url) {
+      setSaving(false);
+      setMessage(error?.message ?? "Could not start Google sign-in.");
+      return;
+    }
+
+    const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+    setSaving(false);
+
+    if (result.type === "success" && result.url) {
+      await createSessionFromUrl(result.url);
+    }
+  }
 
   async function handleAuthSubmit() {
     if (!supabase) {
@@ -2050,49 +2116,79 @@ export default function App() {
             </Text>
 
             <View style={styles.form}>
-              <LabeledInput
-                label="Email"
-                placeholder="you@example.com"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                value={email}
-                onChangeText={setEmail}
-              />
-              <LabeledInput
-                label="Password"
-                placeholder="At least 6 characters"
-                secureTextEntry
-                value={password}
-                onChangeText={setPassword}
-              />
-
-              {message ? <Text style={styles.message}>{message}</Text> : null}
-
-              <PrimaryButton
-                label={
-                  saving
-                    ? "Working..."
-                    : authMode === "sign-in"
-                      ? "Sign in"
-                      : "Create account"
-                }
-                onPress={handleAuthSubmit}
-                disabled={saving || !email || !password}
-              />
-
               <Pressable
-                onPress={() =>
-                  setAuthMode((current) =>
-                    current === "sign-in" ? "sign-up" : "sign-in"
-                  )
-                }
+                onPress={handleGoogleSignIn}
+                disabled={saving}
+                style={({ pressed }) => [
+                  styles.socialButton,
+                  styles.socialButtonGoogle,
+                  pressed && styles.socialButtonPressed,
+                ]}
               >
-                <Text style={styles.inlineLink}>
-                  {authMode === "sign-in"
-                    ? "Need an account? Switch to sign up."
-                    : "Already have an account? Switch to sign in."}
+                <Text style={styles.socialButtonTextGoogle}>
+                  Continue with Google
                 </Text>
               </Pressable>
+
+              {!showEmailForm ? (
+                <Pressable onPress={() => setShowEmailForm(true)}>
+                  <Text style={styles.inlineLink}>
+                    Continue with email
+                  </Text>
+                </Pressable>
+              ) : (
+                <>
+                  <View style={styles.dividerRow}>
+                    <View style={styles.dividerLine} />
+                    <Text style={styles.dividerText}>or</Text>
+                    <View style={styles.dividerLine} />
+                  </View>
+
+                  <LabeledInput
+                    label="Email"
+                    placeholder="you@example.com"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    value={email}
+                    onChangeText={setEmail}
+                  />
+                  <LabeledInput
+                    label="Password"
+                    placeholder="At least 6 characters"
+                    secureTextEntry
+                    value={password}
+                    onChangeText={setPassword}
+                  />
+
+                  <PrimaryButton
+                    label={
+                      saving
+                        ? "Working..."
+                        : authMode === "sign-in"
+                          ? "Sign in"
+                          : "Create account"
+                    }
+                    onPress={handleAuthSubmit}
+                    disabled={saving || !email || !password}
+                  />
+
+                  <Pressable
+                    onPress={() =>
+                      setAuthMode((current) =>
+                        current === "sign-in" ? "sign-up" : "sign-in"
+                      )
+                    }
+                  >
+                    <Text style={styles.inlineLink}>
+                      {authMode === "sign-in"
+                        ? "Need an account? Switch to sign up."
+                        : "Already have an account? Switch to sign in."}
+                    </Text>
+                  </Pressable>
+                </>
+              )}
+
+              {message ? <Text style={styles.message}>{message}</Text> : null}
             </View>
           </View>
 
@@ -4618,6 +4714,38 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     textAlign: "center",
+  },
+  socialButton: {
+    height: 50,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  socialButtonGoogle: {
+    backgroundColor: "#F7F2E7",
+  },
+  socialButtonPressed: {
+    opacity: 0.85,
+  },
+  socialButtonTextGoogle: {
+    color: "#2A2620",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  dividerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginVertical: 2,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.1)",
+  },
+  dividerText: {
+    color: "#8A7E6C",
+    fontSize: 12,
   },
   stepRow: {
     flexDirection: "row",
