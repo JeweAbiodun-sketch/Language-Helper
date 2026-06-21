@@ -140,7 +140,7 @@ type Achievement = {
 };
 
 type AuthMode = "sign-in" | "sign-up";
-type Screen = "auth" | "onboarding" | "dashboard" | "lesson" | "review" | "summary";
+type Screen = "auth" | "dashboard" | "lesson" | "review" | "summary";
 type NavTab = "dashboard" | "lessons" | "review" | "journal" | "progress";
 type JournalSort = "newest" | "oldest";
 type JournalTag = "all" | "grammar" | "vocabulary" | "speaking" | "listening" | "review";
@@ -522,9 +522,7 @@ export default function App() {
         ? "lesson"
         : activeReviewIndex !== null
           ? "review"
-          : profile?.onboarding_completed
-            ? "dashboard"
-            : "onboarding";
+          : "dashboard";
   const currentNavTab: NavTab = screen === "dashboard"
     ? mainTab
     : screen === "review"
@@ -674,10 +672,6 @@ export default function App() {
     () => lessonFollowUp ?? recommendedLesson,
     [lessonFollowUp, recommendedLesson]
   );
-  useEffect(() => {
-    if (screen !== "onboarding" || placementLevelLocked) return;
-    setSelectedLevel(placementRecommendation);
-  }, [screen, placementLevelLocked, placementRecommendation]);
   const masteredLessonCount = useMemo(
     () =>
       Array.from(lessonProgress.values()).filter(
@@ -1165,6 +1159,55 @@ export default function App() {
   }, [session]);
 
   useEffect(() => {
+    if (!supabase || !session?.user || !profile) return;
+    if (profile.onboarding_completed) return;
+
+    const client = supabase;
+    const userId = session.user.id;
+    let cancelled = false;
+
+    async function autoCompleteOnboarding() {
+      const { error } = await client
+        .from("profiles")
+        .update({ onboarding_completed: true })
+        .eq("id", userId);
+
+      if (cancelled || error) return;
+
+      const starterCards = [
+        {
+          user_id: userId,
+          prompt: "What is the polite phrase for ordering coffee?",
+          answer: "Guten Tag, ich haette gern Kaffee",
+          srs_stage: 0,
+          due_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+          last_reviewed_at: null,
+        },
+        {
+          user_id: userId,
+          prompt: "Which article fits Brot in the accusative?",
+          answer: "den Brot",
+          srs_stage: 0,
+          due_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+          last_reviewed_at: null,
+        },
+      ];
+      await client.from("srs_cards").insert(starterCards);
+
+      if (cancelled) return;
+      setProfile((current) =>
+        current ? { ...current, onboarding_completed: true } : current
+      );
+    }
+
+    autoCompleteOnboarding();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user?.id, profile?.onboarding_completed]);
+
+  useEffect(() => {
     if (!session?.user?.id || !supabase) return;
 
     flushSyncQueue(session.user.id);
@@ -1569,76 +1612,6 @@ export default function App() {
         ? "Signed in successfully."
         : "Account created. Check your inbox if email confirmation is enabled."
     );
-  }
-
-  async function handleOnboardingSubmit() {
-    if (!supabase || !session?.user) {
-      setMessage("Supabase is not ready yet.");
-      return;
-    }
-
-    setSaving(true);
-    setMessage(null);
-
-    const numericGoal = Number.parseInt(dailyGoalMinutes, 10);
-    const minutes = Number.isFinite(numericGoal) ? Math.max(5, numericGoal) : 10;
-
-    const { error } = await supabase
-      .from("profiles")
-      .update({
-        display_name: displayName.trim() || profile?.display_name || greeting,
-        cefr_level: selectedLevel,
-        placement_level: selectedLevel,
-        placement_answers: buildPlacementAnswersPayload(placementAnswers),
-        daily_goal_minutes: minutes,
-        onboarding_completed: true,
-      })
-      .eq("id", session.user.id);
-
-    setSaving(false);
-
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-
-    const starterCards = [
-      {
-        user_id: session.user.id,
-        prompt: "What is the polite phrase for ordering coffee?",
-        answer: "Guten Tag, ich haette gern Kaffee",
-        srs_stage: 0,
-        due_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-        last_reviewed_at: null,
-      },
-      {
-        user_id: session.user.id,
-        prompt: "Which article fits Brot in the accusative?",
-        answer: "den Brot",
-        srs_stage: 0,
-        due_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-        last_reviewed_at: null,
-      },
-    ];
-
-    await supabase.from("srs_cards").insert(starterCards);
-
-    setPendingLessonFocus(placementWeakness);
-
-    setProfile((current) =>
-      current
-        ? {
-            ...current,
-            display_name: displayName.trim() || current.display_name,
-            cefr_level: selectedLevel,
-            placement_level: selectedLevel,
-            placement_answers: buildPlacementAnswersPayload(placementAnswers),
-            daily_goal_minutes: minutes,
-            onboarding_completed: true,
-          }
-        : current
-    );
-    setMessage("Onboarding saved.");
   }
 
   function handleOpenLesson(lesson: Lesson) {
@@ -2131,136 +2104,6 @@ export default function App() {
               <Pill label="Placement test" />
               <Pill label="Lesson engine" />
               <Pill label="Progress tracking" />
-            </View>
-          </SectionCard>
-        </ScrollView>
-      </SafeAreaView>
-    );
-  }
-
-  if (screen === "onboarding") {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <StatusBar barStyle="light-content" />
-        <ExpoStatusBar style="light" />
-        <ScrollView contentContainerStyle={styles.container}>
-          <View style={styles.hero}>
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>Setup</Text>
-            </View>
-            <Text style={styles.title}>Quick placement check</Text>
-            <Text style={styles.subtitle}>
-              Answer a few quick questions, then choose a starting level and daily pace so we can shape the first lessons around your real routine.
-            </Text>
-            <View style={styles.connectionPill}>
-              <Text style={styles.connectionPillText}>
-                Profile for {greeting}
-              </Text>
-            </View>
-          </View>
-
-          <SectionCard
-            title="Placement quiz"
-            eyebrow="Adaptive start"
-            description="We use a tiny check to suggest your starting CEFR level. You can still override it below."
-          >
-            <View style={styles.quizColumn}>
-              {placementQuestions.map((question, questionIndex) => (
-                <View key={question.prompt} style={styles.field}>
-                  <Text style={styles.label}>
-                    {questionIndex + 1}. {question.prompt}
-                  </Text>
-                  <View style={styles.choiceRow}>
-                    {question.options.map((option, optionIndex) => (
-                      <ChoiceChip
-                        key={option}
-                        label={option}
-                        selected={placementAnswers[questionIndex] === optionIndex}
-                        onPress={() =>
-                          setPlacementAnswers((current) =>
-                            current.map((answer, index) =>
-                              index === questionIndex ? optionIndex : answer
-                            )
-                          )
-                        }
-                      />
-                    ))}
-                  </View>
-                </View>
-              ))}
-            </View>
-            <View style={styles.reviewSummaryRow}>
-              <StatCard label="Score" value={`${placementScore}/${placementQuestions.length}`} />
-              <StatCard label="Suggested" value={placementRecommendation} />
-            </View>
-            <PrimaryButton
-              label={`Use ${placementRecommendation} level`}
-              onPress={() => {
-                setSelectedLevel(placementRecommendation);
-                setPlacementLevelLocked(false);
-              }}
-            />
-          </SectionCard>
-
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Finish your profile</Text>
-            <Text style={styles.cardDescription}>
-              This stores your placement choice and learning goal in Supabase.
-            </Text>
-
-            <View style={styles.form}>
-              <LabeledInput
-                label="Display name"
-                placeholder="How should we greet you?"
-                value={displayName}
-                onChangeText={setDisplayName}
-              />
-
-              <View style={styles.field}>
-                <Text style={styles.label}>Starting level</Text>
-                <View style={styles.choiceRow}>
-                  {placementChoices.map((choice) => (
-                    <ChoiceChip
-                      key={choice}
-                      label={choice}
-                      selected={selectedLevel === choice}
-                      onPress={() => {
-                        setSelectedLevel(choice);
-                        setPlacementLevelLocked(true);
-                      }}
-                    />
-                  ))}
-                </View>
-              </View>
-
-              <LabeledInput
-                label="Daily goal minutes"
-                placeholder="10"
-                keyboardType="number-pad"
-                value={dailyGoalMinutes}
-                onChangeText={setDailyGoalMinutes}
-              />
-
-              {message ? <Text style={styles.message}>{message}</Text> : null}
-
-              <PrimaryButton
-                label={saving ? "Saving..." : "Continue to dashboard"}
-                onPress={handleOnboardingSubmit}
-                disabled={saving}
-              />
-            </View>
-          </View>
-
-          <SectionCard
-            title="How we will use this"
-            eyebrow="Adaptive plan"
-            description="Your level and goal control lesson length, practice mix, and future recommendation logic."
-          >
-            <View style={styles.pillRow}>
-              <Pill label="Profile sync" />
-              <Pill label="Daily goal" />
-              <Pill label="Lesson pacing" />
-              <Pill label="SRS load" />
             </View>
           </SectionCard>
         </ScrollView>
