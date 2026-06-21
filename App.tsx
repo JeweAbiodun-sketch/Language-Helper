@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Dimensions,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -19,6 +20,8 @@ import {
   lessonSteps,
   placementQuestions,
   type LessonContent,
+  type LearnNote,
+  type QuizQuestion,
 } from "./src/content/lessonContent";
 import LessonVideo from "./src/components/LessonVideo";
 
@@ -101,7 +104,27 @@ type SyncQueueItem =
       };
     };
 
-type LessonPhase = "learn" | "practice";
+type LessonPage =
+  | { kind: "intro" }
+  | { kind: "note"; note: LearnNote; index: number; total: number }
+  | { kind: "quiz"; question: QuizQuestion; index: number; total: number }
+  | { kind: "history" }
+  | { kind: "complete" };
+
+function buildLessonPages(content: LessonContent): LessonPage[] {
+  const pages: LessonPage[] = [{ kind: "intro" }];
+  content.learnNotes.forEach((note, index) => {
+    pages.push({ kind: "note", note, index, total: content.learnNotes.length });
+  });
+  content.quiz.forEach((question, index) => {
+    pages.push({ kind: "quiz", question, index, total: content.quiz.length });
+  });
+  pages.push({ kind: "history" });
+  pages.push({ kind: "complete" });
+  return pages;
+}
+
+const SCREEN_WIDTH = Dimensions.get("window").width;
 
 type LessonResult = {
   lesson: Lesson;
@@ -424,8 +447,16 @@ export default function App() {
   const [lessonFilter, setLessonFilter] = useState<LessonFilter>("all");
   const [activeLesson, setActiveLesson] = useState<Lesson | null>(null);
   const [pendingLessonFocus, setPendingLessonFocus] = useState<LessonFilter | null>(null);
-  const [lessonPhase, setLessonPhase] = useState<LessonPhase>("learn");
+  const [pageIndex, setPageIndex] = useState(0);
+  const lessonPagerRef = useRef<ScrollView>(null);
   const [quizAnswers, setQuizAnswers] = useState<Array<number | null>>([]);
+
+  useEffect(() => {
+    if (activeLesson) {
+      lessonPagerRef.current?.scrollTo({ x: pageIndex * SCREEN_WIDTH, animated: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLesson?.id]);
   const [lessonNote, setLessonNote] = useState("");
   const [lessonSaving, setLessonSaving] = useState(false);
   const [lessonResult, setLessonResult] = useState<LessonResult | null>(null);
@@ -1612,7 +1643,7 @@ export default function App() {
 
   function handleOpenLesson(lesson: Lesson) {
     setActiveLesson(lesson);
-    setLessonPhase("learn");
+    setPageIndex(0);
     setQuizAnswers(
       Array.from({ length: getLessonContent(lesson.content_key).quiz.length }, () => null)
     );
@@ -1623,7 +1654,7 @@ export default function App() {
 
   function handleCloseLesson() {
     setActiveLesson(null);
-    setLessonPhase("learn");
+    setPageIndex(0);
     setQuizAnswers([]);
     setLessonNote("");
   }
@@ -1688,21 +1719,17 @@ export default function App() {
     }
     setLessonResult(null);
     setQuizAnswers([]);
-    setLessonPhase("learn");
+    setPageIndex(0);
     setActiveLesson(null);
   }
 
   function handlePracticeAgain() {
     if (!lessonResult) return;
+    const content = getLessonContent(lessonResult.lesson.content_key);
     setActiveLesson(lessonResult.lesson);
     setLessonResult(null);
-    setLessonPhase("practice");
-    setQuizAnswers(
-      Array.from(
-        { length: getLessonContent(lessonResult.lesson.content_key).quiz.length },
-        () => null
-      )
-    );
+    setPageIndex(1 + content.learnNotes.length);
+    setQuizAnswers(Array.from({ length: content.quiz.length }, () => null));
     setLessonNote("");
   }
 
@@ -2243,310 +2270,339 @@ export default function App() {
 
   if (screen === "lesson" && activeLesson) {
     const content = getLessonContent(activeLesson.content_key);
+    const pages = buildLessonPages(content);
+    const safePageIndex = Math.min(pageIndex, pages.length - 1);
 
     return (
       <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="light-content" />
         <ExpoStatusBar style="light" />
-        <ScrollView contentContainerStyle={styles.container}>
-          <View style={styles.hero}>
+        <View style={styles.bookHeader}>
+          <View style={styles.bookHeaderTopRow}>
             <View style={styles.badge}>
               <Text style={styles.badgeText}>{activeLesson.cefr_level}</Text>
             </View>
-            <Text style={styles.title}>{activeLesson.title}</Text>
-            <Text style={styles.subtitle}>
-              {activeLesson.description ?? activeLesson.topic}
-            </Text>
-            <View style={styles.connectionPill}>
-              <Text style={styles.connectionPillText}>
-                {activeLesson.estimated_minutes} minute lesson · {lessonPhase === "learn" ? "Step 1: Watch & learn" : "Step 2: Practice"}
-              </Text>
-            </View>
-            {handoffNotice ? <Text style={styles.cardDescription}>{handoffNotice}</Text> : null}
-            <PrimaryButton label="Back to dashboard" onPress={handleCloseLesson} />
+            <Pressable onPress={handleCloseLesson}>
+              <Text style={styles.inlineLink}>Close</Text>
+            </Pressable>
           </View>
-
-          {lessonPhase === "learn" ? (
-            <SectionCard
-              title="Watch & learn"
-              eyebrow="Lesson step 1 of 2"
-              description={content.learnIntro}
-            >
-              <LessonVideo videoId={content.videoId} title={content.videoTitle} />
-              <View style={styles.learnNotesColumn}>
-                {content.learnNotes.map((note) => (
-                  <View key={note.heading} style={styles.learnNoteCard}>
-                    <Text style={styles.learnNoteHeading}>{note.heading}</Text>
-                    <Text style={styles.learnNoteBody}>{note.body}</Text>
-                  </View>
-                ))}
-              </View>
-              <PrimaryButton
-                label="Start practice"
-                onPress={() => setLessonPhase("practice")}
+          <Text style={styles.title}>{activeLesson.title}</Text>
+          <View style={styles.bookDotsRow}>
+            {pages.map((page, index) => (
+              <View
+                key={`dot-${page.kind}-${index}`}
+                style={[
+                  styles.bookDot,
+                  index === safePageIndex && styles.bookDotActive,
+                ]}
               />
-            </SectionCard>
-          ) : (
-            <SectionCard
-              title="Practice"
-              eyebrow="Lesson step 2 of 2"
-              description="Answer each question, then mark the lesson complete."
+            ))}
+          </View>
+          <Text style={styles.bookPageLabel}>
+            Page {safePageIndex + 1} of {pages.length} · swipe to turn the page
+          </Text>
+        </View>
+
+        <ScrollView
+          ref={lessonPagerRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          contentOffset={{ x: safePageIndex * SCREEN_WIDTH, y: 0 }}
+          onMomentumScrollEnd={(event) => {
+            const newIndex = Math.round(
+              event.nativeEvent.contentOffset.x / SCREEN_WIDTH
+            );
+            setPageIndex(newIndex);
+          }}
+          style={styles.bookPager}
+        >
+          {pages.map((page, index) => (
+            <View
+              key={`page-${page.kind}-${index}`}
+              style={[styles.bookPage, { width: SCREEN_WIDTH }]}
             >
-              <View style={styles.quizColumn}>
-                {content.quiz.map((question, questionIndex) => (
-                  <View key={question.id} style={styles.field}>
-                    <Text style={styles.label}>
-                      {questionIndex + 1}. {question.prompt}
+              <ScrollView contentContainerStyle={styles.bookPageContent}>
+                {page.kind === "intro" ? (
+                  <>
+                    <Text style={styles.eyebrow}>Watch & learn</Text>
+                    <Text style={styles.cardDescription}>
+                      {activeLesson.description ?? activeLesson.topic}
                     </Text>
-                    <View style={styles.choiceRow}>
-                      {question.options.map((option, optionIndex) => (
+                    {handoffNotice ? (
+                      <Text style={styles.cardDescription}>{handoffNotice}</Text>
+                    ) : null}
+                    <Text style={styles.cardDescription}>{content.learnIntro}</Text>
+                    <LessonVideo videoId={content.videoId} title={content.videoTitle} />
+                  </>
+                ) : null}
+
+                {page.kind === "note" ? (
+                  <>
+                    <Text style={styles.eyebrow}>
+                      Watch & learn · note {page.index + 1} of {page.total}
+                    </Text>
+                    <View style={styles.learnNoteCard}>
+                      <Text style={styles.learnNoteHeading}>{page.note.heading}</Text>
+                      <Text style={styles.learnNoteBody}>{page.note.body}</Text>
+                    </View>
+                  </>
+                ) : null}
+
+                {page.kind === "quiz" ? (
+                  <>
+                    <Text style={styles.eyebrow}>
+                      Practice · question {page.index + 1} of {page.total}
+                    </Text>
+                    <Text style={styles.lessonPrompt}>{page.question.prompt}</Text>
+                    <View style={styles.quizColumn}>
+                      {page.question.options.map((option, optionIndex) => (
                         <ChoiceChip
                           key={option}
                           label={option}
-                          selected={quizAnswers[questionIndex] === optionIndex}
+                          selected={quizAnswers[page.index] === optionIndex}
                           onPress={() =>
                             setQuizAnswers((current) =>
-                              current.map((answer, index) =>
-                                index === questionIndex ? optionIndex : answer
+                              current.map((answer, i) =>
+                                i === page.index ? optionIndex : answer
                               )
                             )
                           }
                         />
                       ))}
                     </View>
-                    <Text style={styles.lessonHint}>Hint: {question.hint}</Text>
-                  </View>
-                ))}
-              </View>
-              <Pressable onPress={() => setLessonPhase("learn")}>
-                <Text style={styles.inlineLink}>Back to the video and notes</Text>
-              </Pressable>
-              <View style={styles.field}>
-                <Text style={styles.label}>Session note</Text>
-                <TextInput
-                  value={lessonNote}
-                  onChangeText={setLessonNote}
-                  placeholder="What felt tricky or worth remembering?"
-                  placeholderTextColor="#7384A6"
-                  style={styles.textArea}
-                  multiline
-                  numberOfLines={3}
-                  textAlignVertical="top"
-                />
-              </View>
-            </SectionCard>
-          )}
+                    <Text style={styles.lessonHint}>Hint: {page.question.hint}</Text>
+                  </>
+                ) : null}
 
-          <SectionCard
-            title="Your history"
-            eyebrow="Lesson context"
-            description="A small record of how this specific lesson has gone before."
-          >
-            <View style={styles.field}>
-              <Text style={styles.label}>Search lesson history</Text>
-              <TextInput
-                value={lessonHistoryQuery}
-                onChangeText={setLessonHistoryQuery}
-                placeholder="Search notes from this lesson"
-                placeholderTextColor="#7384A6"
-                style={styles.input}
-              />
-            </View>
-            {lessonHistoryLoading ? (
-              <View style={styles.inlineLoaderRow}>
-                <ActivityIndicator color="#BFD0FF" />
-                <Text style={styles.inlineLoaderText}>
-                  Loading lesson history...
-                </Text>
-              </View>
-            ) : filteredLessonHistory.length > 0 ? (
-              <>
-                <View style={styles.heroRow}>
-                  <StatCard
-                    label="Attempts"
-                    value={`${filteredLessonHistory.length}`}
-                  />
-                  <StatCard
-                    label="Avg. accuracy"
-                    value={`${Math.round(
-                      filteredLessonHistory.reduce(
-                        (sum, item) => sum + (item.accuracy ?? 0),
-                        0
-                      ) / filteredLessonHistory.length
-                    )}%`}
-                  />
-                  <StatCard
-                    label="Mastery"
-                    value={
-                      filteredLessonHistory.length >= 3 &&
-                      filteredLessonHistory.reduce(
-                        (sum, item) => sum + (item.accuracy ?? 0),
-                        0
-                      ) /
-                        filteredLessonHistory.length >=
-                        90
-                        ? "High"
-                        : filteredLessonHistory.length >= 2
-                          ? "Building"
-                          : "Start"
-                    }
-                  />
-                </View>
-                {filteredLessonHistory.map((item) => (
-                  <View key={item.id} style={styles.sessionRow}>
-                    <View style={styles.sessionRowHeader}>
-                      <Text style={styles.sessionRowTitle}>
-                        {new Date(item.created_at).toLocaleString()}
-                      </Text>
-                      <Text style={styles.sessionRowMeta}>
-                        {item.accuracy ?? 0}%
-                      </Text>
+                {page.kind === "history" ? (
+                  <>
+                    <Text style={styles.eyebrow}>Your history with this lesson</Text>
+                    <View style={styles.field}>
+                      <Text style={styles.label}>Search lesson history</Text>
+                      <TextInput
+                        value={lessonHistoryQuery}
+                        onChangeText={setLessonHistoryQuery}
+                        placeholder="Search notes from this lesson"
+                        placeholderTextColor="#7384A6"
+                        style={styles.input}
+                      />
                     </View>
-                    <View style={styles.sessionRowFooter}>
-                      <Text style={styles.sessionRowMeta}>
-                        Hints: {item.hint_usage}
-                      </Text>
-                      <Text style={styles.sessionRowMeta}>
-                        {item.accuracy && item.accuracy >= 90
-                          ? "Strong run"
-                          : "Keep practicing"}
-                      </Text>
-                    </View>
-                    {editingReflectionId === item.id ? (
+                    {lessonHistoryLoading ? (
+                      <View style={styles.inlineLoaderRow}>
+                        <ActivityIndicator color="#BFD0FF" />
+                        <Text style={styles.inlineLoaderText}>
+                          Loading lesson history...
+                        </Text>
+                      </View>
+                    ) : filteredLessonHistory.length > 0 ? (
                       <>
-                        <TextInput
-                          value={editingReflectionNote}
-                          onChangeText={setEditingReflectionNote}
-                          placeholder="What felt tricky or worth remembering?"
-                          placeholderTextColor="#7384A6"
-                          style={styles.textArea}
-                          multiline
-                          numberOfLines={3}
-                          textAlignVertical="top"
-                        />
-                        <View style={styles.reflectionActions}>
-                          <Pressable
-                            onPress={cancelEditingReflection}
-                            style={({ pressed }) => [
-                              styles.reflectionActionButton,
-                              styles.reflectionActionButtonMuted,
-                              pressed && styles.reflectionActionButtonPressed,
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.reflectionActionButtonText,
-                                styles.reflectionActionButtonTextMuted,
-                              ]}
-                            >
-                              Cancel
-                            </Text>
-                          </Pressable>
-                          <Pressable
-                            onPress={deleteReflectionNote}
-                            disabled={editingReflectionSaving}
-                            style={({ pressed }) => [
-                              styles.reflectionActionButton,
-                              styles.reflectionActionButtonDanger,
-                              pressed && !editingReflectionSaving && styles.reflectionActionButtonPressed,
-                              editingReflectionSaving && styles.primaryButtonDisabled,
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.reflectionActionButtonText,
-                                styles.reflectionActionButtonTextDanger,
-                              ]}
-                            >
-                              Delete
-                            </Text>
-                          </Pressable>
-                          <Pressable
-                            onPress={saveReflectionNote}
-                            disabled={editingReflectionSaving}
-                            style={({ pressed }) => [
-                              styles.reflectionActionButton,
-                              pressed && !editingReflectionSaving && styles.reflectionActionButtonPressed,
-                              editingReflectionSaving && styles.primaryButtonDisabled,
-                            ]}
-                          >
-                            <Text style={styles.reflectionActionButtonText}>
-                              {editingReflectionSaving ? "Saving..." : "Save"}
-                            </Text>
-                          </Pressable>
+                        <View style={styles.heroRow}>
+                          <StatCard
+                            label="Attempts"
+                            value={`${filteredLessonHistory.length}`}
+                          />
+                          <StatCard
+                            label="Avg. accuracy"
+                            value={`${Math.round(
+                              filteredLessonHistory.reduce(
+                                (sum, item) => sum + (item.accuracy ?? 0),
+                                0
+                              ) / filteredLessonHistory.length
+                            )}%`}
+                          />
+                          <StatCard
+                            label="Mastery"
+                            value={
+                              filteredLessonHistory.length >= 3 &&
+                              filteredLessonHistory.reduce(
+                                (sum, item) => sum + (item.accuracy ?? 0),
+                                0
+                              ) /
+                                filteredLessonHistory.length >=
+                                90
+                                ? "High"
+                                : filteredLessonHistory.length >= 2
+                                  ? "Building"
+                                  : "Start"
+                            }
+                          />
                         </View>
+                        {filteredLessonHistory.map((item) => (
+                          <View key={item.id} style={styles.sessionRow}>
+                            <View style={styles.sessionRowHeader}>
+                              <Text style={styles.sessionRowTitle}>
+                                {new Date(item.created_at).toLocaleString()}
+                              </Text>
+                              <Text style={styles.sessionRowMeta}>
+                                {item.accuracy ?? 0}%
+                              </Text>
+                            </View>
+                            <View style={styles.sessionRowFooter}>
+                              <Text style={styles.sessionRowMeta}>
+                                Hints: {item.hint_usage}
+                              </Text>
+                              <Text style={styles.sessionRowMeta}>
+                                {item.accuracy && item.accuracy >= 90
+                                  ? "Strong run"
+                                  : "Keep practicing"}
+                              </Text>
+                            </View>
+                            {editingReflectionId === item.id ? (
+                              <>
+                                <TextInput
+                                  value={editingReflectionNote}
+                                  onChangeText={setEditingReflectionNote}
+                                  placeholder="What felt tricky or worth remembering?"
+                                  placeholderTextColor="#7384A6"
+                                  style={styles.textArea}
+                                  multiline
+                                  numberOfLines={3}
+                                  textAlignVertical="top"
+                                />
+                                <View style={styles.reflectionActions}>
+                                  <Pressable
+                                    onPress={cancelEditingReflection}
+                                    style={({ pressed }) => [
+                                      styles.reflectionActionButton,
+                                      styles.reflectionActionButtonMuted,
+                                      pressed && styles.reflectionActionButtonPressed,
+                                    ]}
+                                  >
+                                    <Text
+                                      style={[
+                                        styles.reflectionActionButtonText,
+                                        styles.reflectionActionButtonTextMuted,
+                                      ]}
+                                    >
+                                      Cancel
+                                    </Text>
+                                  </Pressable>
+                                  <Pressable
+                                    onPress={deleteReflectionNote}
+                                    disabled={editingReflectionSaving}
+                                    style={({ pressed }) => [
+                                      styles.reflectionActionButton,
+                                      styles.reflectionActionButtonDanger,
+                                      pressed && !editingReflectionSaving && styles.reflectionActionButtonPressed,
+                                      editingReflectionSaving && styles.primaryButtonDisabled,
+                                    ]}
+                                  >
+                                    <Text
+                                      style={[
+                                        styles.reflectionActionButtonText,
+                                        styles.reflectionActionButtonTextDanger,
+                                      ]}
+                                    >
+                                      Delete
+                                    </Text>
+                                  </Pressable>
+                                  <Pressable
+                                    onPress={saveReflectionNote}
+                                    disabled={editingReflectionSaving}
+                                    style={({ pressed }) => [
+                                      styles.reflectionActionButton,
+                                      pressed && !editingReflectionSaving && styles.reflectionActionButtonPressed,
+                                      editingReflectionSaving && styles.primaryButtonDisabled,
+                                    ]}
+                                  >
+                                    <Text style={styles.reflectionActionButtonText}>
+                                      {editingReflectionSaving ? "Saving..." : "Save"}
+                                    </Text>
+                                  </Pressable>
+                                </View>
+                              </>
+                            ) : (
+                              <>
+                                {item.note ? (
+                                  <Text style={styles.sessionRowNote}>{item.note}</Text>
+                                ) : (
+                                  <Text style={styles.sessionRowMeta}>
+                                    No note yet. Add one to capture what to remember.
+                                  </Text>
+                                )}
+                                <View style={styles.reflectionHeaderActions}>
+                                  {item.note ? (
+                                    <Pressable
+                                      onPress={() => toggleReflectionPin(item.id, !item.pinned)}
+                                      style={({ pressed }) => [
+                                        styles.reflectionActionButton,
+                                        item.pinned
+                                          ? styles.reflectionActionButtonPinned
+                                          : styles.reflectionActionButtonMuted,
+                                        pressed && styles.reflectionActionButtonPressed,
+                                      ]}
+                                    >
+                                      <Text
+                                        style={[
+                                          styles.reflectionActionButtonText,
+                                          item.pinned && styles.reflectionActionButtonTextPinned,
+                                        ]}
+                                      >
+                                        {item.pinned ? "Pinned" : "Pin"}
+                                      </Text>
+                                    </Pressable>
+                                  ) : null}
+                                  <Pressable
+                                    onPress={() => beginEditingReflection(item)}
+                                    style={({ pressed }) => [
+                                      styles.reflectionActionButton,
+                                      pressed && styles.reflectionActionButtonPressed,
+                                    ]}
+                                  >
+                                    <Text style={styles.reflectionActionButtonText}>
+                                      {item.note ? "Edit note" : "Add note"}
+                                    </Text>
+                                  </Pressable>
+                                </View>
+                              </>
+                            )}
+                          </View>
+                        ))}
                       </>
                     ) : (
-                      <>
-                        {item.note ? (
-                          <Text style={styles.sessionRowNote}>{item.note}</Text>
-                        ) : (
-                          <Text style={styles.sessionRowMeta}>
-                            No note yet. Add one to capture what to remember.
-                          </Text>
-                        )}
-                        <View style={styles.reflectionHeaderActions}>
-                          {item.note ? (
-                            <Pressable
-                              onPress={() => toggleReflectionPin(item.id, !item.pinned)}
-                              style={({ pressed }) => [
-                                styles.reflectionActionButton,
-                                item.pinned
-                                  ? styles.reflectionActionButtonPinned
-                                  : styles.reflectionActionButtonMuted,
-                                pressed && styles.reflectionActionButtonPressed,
-                              ]}
-                            >
-                              <Text
-                                style={[
-                                  styles.reflectionActionButtonText,
-                                  item.pinned && styles.reflectionActionButtonTextPinned,
-                                ]}
-                              >
-                                {item.pinned ? "Pinned" : "Pin"}
-                              </Text>
-                            </Pressable>
-                          ) : null}
-                          <Pressable
-                            onPress={() => beginEditingReflection(item)}
-                            style={({ pressed }) => [
-                              styles.reflectionActionButton,
-                              pressed && styles.reflectionActionButtonPressed,
-                            ]}
-                          >
-                            <Text style={styles.reflectionActionButtonText}>
-                              {item.note ? "Edit note" : "Add note"}
-                            </Text>
-                          </Pressable>
-                        </View>
-                      </>
+                      <Text style={styles.cardDescription}>
+                        {lessonHistoryQuery.trim()
+                          ? "No lesson notes match that search yet."
+                          : "No history yet. This will fill in after your first attempt."}
+                      </Text>
                     )}
-                  </View>
-                ))}
-              </>
-            ) : (
-              <Text style={styles.cardDescription}>
-                {lessonHistoryQuery.trim()
-                  ? "No lesson notes match that search yet."
-                  : "No history yet. This will fill in after your first attempt."}
-              </Text>
-            )}
-            {lessonHistoryError ? (
-              <Text style={styles.message}>{lessonHistoryError}</Text>
-            ) : null}
-          </SectionCard>
+                    {lessonHistoryError ? (
+                      <Text style={styles.message}>{lessonHistoryError}</Text>
+                    ) : null}
+                  </>
+                ) : null}
 
-          {message ? <InfoBanner text={message} /> : null}
-
-          {lessonPhase === "practice" ? (
-            <PrimaryButton
-              label={lessonSaving ? "Saving lesson..." : "Complete lesson"}
-              onPress={handleCompleteLesson}
-              disabled={lessonSaving || quizAnswers.some((answer) => answer === null)}
-            />
-          ) : null}
-          <TabBar activeTab={currentNavTab} onHome={handleGoHome} onLessons={handleGoLessons} onReview={handleGoReview} onJournal={handleGoJournal} onProgress={handleGoProgress} />
+                {page.kind === "complete" ? (
+                  <>
+                    <Text style={styles.eyebrow}>Wrap up</Text>
+                    <View style={styles.field}>
+                      <Text style={styles.label}>Session note</Text>
+                      <TextInput
+                        value={lessonNote}
+                        onChangeText={setLessonNote}
+                        placeholder="What felt tricky or worth remembering?"
+                        placeholderTextColor="#7384A6"
+                        style={styles.textArea}
+                        multiline
+                        numberOfLines={3}
+                        textAlignVertical="top"
+                      />
+                    </View>
+                    {message ? <InfoBanner text={message} /> : null}
+                    <PrimaryButton
+                      label={lessonSaving ? "Saving lesson..." : "Complete lesson"}
+                      onPress={handleCompleteLesson}
+                      disabled={lessonSaving || quizAnswers.some((answer) => answer === null)}
+                    />
+                  </>
+                ) : null}
+              </ScrollView>
+            </View>
+          ))}
         </ScrollView>
+
+        <TabBar activeTab={currentNavTab} onHome={handleGoHome} onLessons={handleGoLessons} onReview={handleGoReview} onJournal={handleGoJournal} onProgress={handleGoProgress} />
       </SafeAreaView>
     );
   }
@@ -4868,12 +4924,53 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
+  bookHeader: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 14,
+    gap: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.06)",
+  },
+  bookHeaderTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  bookDotsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 4,
+  },
+  bookDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: "rgba(255,255,255,0.16)",
+  },
+  bookDotActive: {
+    backgroundColor: "#7C9CFF",
+    width: 18,
+  },
+  bookPageLabel: {
+    color: "#7F97C7",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  bookPager: {
+    flex: 1,
+  },
+  bookPage: {
+    flex: 1,
+  },
+  bookPageContent: {
+    flexGrow: 1,
+    padding: 20,
+    gap: 14,
+  },
   quizColumn: {
     gap: 10,
-  },
-  learnNotesColumn: {
-    gap: 10,
-    marginTop: 4,
   },
   learnNoteCard: {
     backgroundColor: "#162640",
