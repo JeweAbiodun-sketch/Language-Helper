@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
+  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -125,6 +126,7 @@ function buildLessonPages(content: LessonContent): LessonPage[] {
 }
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
+const SERIF_FONT = Platform.select({ ios: "Georgia", android: "serif", default: "Georgia" });
 
 type LessonResult = {
   lesson: Lesson;
@@ -147,7 +149,7 @@ type JournalTag = "all" | "grammar" | "vocabulary" | "speaking" | "listening" | 
 type LessonFilter = "all" | "grammar" | "vocabulary" | "listening" | "speaking";
 
 const skills: Skill[] = [
-  { key: "Reading", value: 68, tone: "#4C7DFF" },
+  { key: "Reading", value: 68, tone: "#E8B563" },
   { key: "Writing", value: 54, tone: "#F4A261" },
   { key: "Listening", value: 61, tone: "#2A9D8F" },
   { key: "Speaking", value: 47, tone: "#E76F51" },
@@ -2233,13 +2235,13 @@ export default function App() {
                         value={lessonHistoryQuery}
                         onChangeText={setLessonHistoryQuery}
                         placeholder="Search notes from this lesson"
-                        placeholderTextColor="#7384A6"
+                        placeholderTextColor="#8A7E6C"
                         style={styles.input}
                       />
                     </View>
                     {lessonHistoryLoading ? (
                       <View style={styles.inlineLoaderRow}>
-                        <ActivityIndicator color="#BFD0FF" />
+                        <ActivityIndicator color="#F0C988" />
                         <Text style={styles.inlineLoaderText}>
                           Loading lesson history...
                         </Text>
@@ -2303,7 +2305,7 @@ export default function App() {
                                   value={editingReflectionNote}
                                   onChangeText={setEditingReflectionNote}
                                   placeholder="What felt tricky or worth remembering?"
-                                  placeholderTextColor="#7384A6"
+                                  placeholderTextColor="#8A7E6C"
                                   style={styles.textArea}
                                   multiline
                                   numberOfLines={3}
@@ -2431,7 +2433,7 @@ export default function App() {
                         value={lessonNote}
                         onChangeText={setLessonNote}
                         placeholder="What felt tricky or worth remembering?"
-                        placeholderTextColor="#7384A6"
+                        placeholderTextColor="#8A7E6C"
                         style={styles.textArea}
                         multiline
                         numberOfLines={3}
@@ -2516,7 +2518,7 @@ export default function App() {
           {srsLoading ? (
             <View style={styles.card}>
               <View style={styles.inlineLoaderRow}>
-                <ActivityIndicator color="#BFD0FF" />
+                <ActivityIndicator color="#F0C988" />
                 <Text style={styles.inlineLoaderText}>Loading review cards...</Text>
               </View>
             </View>
@@ -2824,7 +2826,7 @@ export default function App() {
               </View>
               {srsLoading ? (
                 <View style={styles.inlineLoaderRow}>
-                  <ActivityIndicator color="#BFD0FF" />
+                  <ActivityIndicator color="#F0C988" />
                   <Text style={styles.inlineLoaderText}>Loading review queue...</Text>
                 </View>
               ) : null}
@@ -2843,7 +2845,7 @@ export default function App() {
             >
               {recentSessionsLoading ? (
                 <View style={styles.inlineLoaderRow}>
-                  <ActivityIndicator color="#BFD0FF" />
+                  <ActivityIndicator color="#F0C988" />
                   <Text style={styles.inlineLoaderText}>Loading session history...</Text>
                 </View>
               ) : recentSessions.length > 0 ? (
@@ -2920,7 +2922,7 @@ export default function App() {
                   value={reflectionQuery}
                   onChangeText={setReflectionQuery}
                   placeholder="Try a word, lesson title, or skill"
-                  placeholderTextColor="#7384A6"
+                  placeholderTextColor="#8A7E6C"
                   style={styles.input}
                 />
               </View>
@@ -2979,7 +2981,7 @@ export default function App() {
                             value={editingReflectionNote}
                             onChangeText={setEditingReflectionNote}
                             placeholder="What felt tricky or worth remembering?"
-                            placeholderTextColor="#7384A6"
+                            placeholderTextColor="#8A7E6C"
                             style={styles.textArea}
                             multiline
                             numberOfLines={3}
@@ -3059,7 +3061,7 @@ export default function App() {
             >
               {lessonsLoading ? (
                 <View style={styles.inlineLoaderRow}>
-                  <ActivityIndicator color="#BFD0FF" />
+                  <ActivityIndicator color="#F0C988" />
                   <Text style={styles.inlineLoaderText}>Loading lessons...</Text>
                 </View>
               ) : lessons.length > 0 ? (
@@ -3289,7 +3291,7 @@ export default function App() {
               </View>
               {lessonsLoading ? (
                 <View style={styles.inlineLoaderRow}>
-                  <ActivityIndicator color="#BFD0FF" />
+                  <ActivityIndicator color="#F0C988" />
                   <Text style={styles.inlineLoaderText}>Loading lessons...</Text>
                 </View>
               ) : filteredLessons.length > 0 ? (
@@ -3396,11 +3398,17 @@ export default function App() {
               eyebrow="Recommended next"
               description="Next lesson at a glance."
             >
-              <Text style={styles.cardDescription}>
-                {dashboardLessonSuggestion
-                  ? `${dashboardLessonSuggestion.title} · ${dashboardLessonSuggestion.cefr_level}`
-                  : "No lesson suggestion yet."}
-              </Text>
+              <View style={styles.journalCard}>
+                <Text style={styles.journalEyebrow}>Today's page</Text>
+                <Text style={styles.journalTitle}>
+                  {dashboardLessonSuggestion?.title ?? "No lesson suggestion yet"}
+                </Text>
+                <Text style={styles.journalDescription}>
+                  {dashboardLessonSuggestion
+                    ? `${dashboardLessonSuggestion.cefr_level} · ${dashboardLessonSuggestion.estimated_minutes} minute lesson`
+                    : "Add lessons in Supabase to see a suggestion here."}
+                </Text>
+              </View>
               <PrimaryButton
                 label={
                   dashboardLessonSuggestion
@@ -3427,7 +3435,7 @@ export default function App() {
               </View>
               {srsLoading ? (
                 <View style={styles.inlineLoaderRow}>
-                  <ActivityIndicator color="#BFD0FF" />
+                  <ActivityIndicator color="#F0C988" />
                   <Text style={styles.inlineLoaderText}>Loading review queue...</Text>
                 </View>
               ) : null}
@@ -3446,7 +3454,7 @@ export default function App() {
             >
               {recentSessionsLoading ? (
                 <View style={styles.inlineLoaderRow}>
-                  <ActivityIndicator color="#BFD0FF" />
+                  <ActivityIndicator color="#F0C988" />
                   <Text style={styles.inlineLoaderText}>Loading session history...</Text>
                 </View>
               ) : recentSessions.length > 0 ? (
@@ -3527,7 +3535,7 @@ export default function App() {
                   value={journalQuery}
                   onChangeText={setJournalQuery}
                   placeholder="Try a lesson title, date, or note"
-                  placeholderTextColor="#7384A6"
+                  placeholderTextColor="#8A7E6C"
                   style={styles.input}
                 />
               </View>
@@ -3686,7 +3694,7 @@ export default function App() {
                             value={editingReflectionNote}
                             onChangeText={setEditingReflectionNote}
                             placeholder="What felt tricky or worth remembering?"
-                            placeholderTextColor="#7384A6"
+                            placeholderTextColor="#8A7E6C"
                             style={styles.textArea}
                             multiline
                             numberOfLines={3}
@@ -3922,7 +3930,7 @@ function CenteredNotice({
 }) {
   return (
     <View style={styles.centeredNotice}>
-      {loading ? <ActivityIndicator color="#BFD0FF" /> : null}
+      {loading ? <ActivityIndicator color="#F0C988" /> : null}
       <Text style={styles.centeredNoticeTitle}>{title}</Text>
       <Text style={styles.centeredNoticeDescription}>{description}</Text>
     </View>
@@ -3945,7 +3953,7 @@ function LabeledInput({
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
-        placeholderTextColor="#7282A6"
+        placeholderTextColor="#897D6B"
         style={styles.input}
         {...props}
       />
@@ -4086,13 +4094,13 @@ function TabButton({
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#0E1726",
+    backgroundColor: "#11141C",
   },
   container: {
     padding: 20,
     paddingBottom: 34,
     gap: 12,
-    backgroundColor: "#0E1726",
+    backgroundColor: "#11141C",
   },
   centeredNotice: {
     flex: 1,
@@ -4100,34 +4108,34 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 24,
     gap: 12,
-    backgroundColor: "#0E1726",
+    backgroundColor: "#11141C",
   },
   centeredNoticeTitle: {
-    color: "#F6F9FF",
+    color: "#F7F2E7",
     fontSize: 24,
     fontWeight: "800",
     textAlign: "center",
   },
   centeredNoticeDescription: {
-    color: "#A9B7D1",
+    color: "#BCB29C",
     fontSize: 15,
     lineHeight: 22,
     textAlign: "center",
   },
   infoBanner: {
-    backgroundColor: "#162640",
+    backgroundColor: "#1B2438",
     borderColor: "rgba(255,255,255,0.06)",
     borderWidth: 1,
     borderRadius: 18,
     padding: 14,
   },
   infoBannerText: {
-    color: "#DDE6F6",
+    color: "#F4E6C4",
     fontSize: 14,
     lineHeight: 20,
   },
   hero: {
-    backgroundColor: "#13233D",
+    backgroundColor: "#182234",
     borderRadius: 28,
     padding: 16,
     borderWidth: 1,
@@ -4135,14 +4143,14 @@ const styles = StyleSheet.create({
   },
   badge: {
     alignSelf: "flex-start",
-    backgroundColor: "rgba(76,125,255,0.12)",
+    backgroundColor: "rgba(232,181,99,0.12)",
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 6,
     marginBottom: 12,
   },
   badgeText: {
-    color: "#BFD0FF",
+    color: "#F0C988",
     fontSize: 12,
     fontWeight: "700",
     letterSpacing: 0.5,
@@ -4172,12 +4180,12 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(76,125,255,0.18)",
+    backgroundColor: "rgba(232,181,99,0.18)",
     borderWidth: 1,
-    borderColor: "rgba(76,125,255,0.28)",
+    borderColor: "rgba(232,181,99,0.28)",
   },
   profileAvatarText: {
-    color: "#EEF4FF",
+    color: "#FAF1DD",
     fontSize: 20,
     fontWeight: "800",
     letterSpacing: 0.6,
@@ -4187,13 +4195,14 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   profileHeaderName: {
-    color: "#F7FAFF",
+    color: "#F8F3E9",
     fontSize: 20,
     fontWeight: "800",
     letterSpacing: 0.2,
+    fontFamily: SERIF_FONT,
   },
   profileHeaderMeta: {
-    color: "#AEB9D2",
+    color: "#C0B8A4",
     fontSize: 13,
     lineHeight: 18,
   },
@@ -4234,14 +4243,15 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   title: {
-    color: "#F6F9FF",
+    color: "#F7F2E7",
     fontSize: 31,
     lineHeight: 37,
     fontWeight: "800",
     marginBottom: 8,
+    fontFamily: SERIF_FONT,
   },
   subtitle: {
-    color: "#B0BDD2",
+    color: "#C2BAA6",
     fontSize: 16,
     lineHeight: 23,
     marginBottom: 16,
@@ -4252,7 +4262,7 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    backgroundColor: "#182947",
+    backgroundColor: "#1C2940",
     borderRadius: 18,
     paddingVertical: 12,
     paddingHorizontal: 10,
@@ -4260,7 +4270,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.04)",
   },
   statLabel: {
-    color: "#95A6C7",
+    color: "#AB9E86",
     fontSize: 11,
     marginBottom: 4,
     textTransform: "uppercase",
@@ -4272,14 +4282,14 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   card: {
-    backgroundColor: "#101B2E",
+    backgroundColor: "#131A28",
     borderRadius: 22,
     padding: 16,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.04)",
   },
   eyebrow: {
-    color: "#7F97C7",
+    color: "#9C8E78",
     textTransform: "uppercase",
     letterSpacing: 1.1,
     fontSize: 11,
@@ -4287,13 +4297,14 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   cardTitle: {
-    color: "#F7FAFF",
+    color: "#F8F3E9",
     fontSize: 20,
     fontWeight: "800",
     marginBottom: 4,
+    fontFamily: SERIF_FONT,
   },
   cardDescription: {
-    color: "#9AAAC6",
+    color: "#AFA38C",
     fontSize: 14,
     lineHeight: 20,
     marginBottom: 12,
@@ -4328,7 +4339,7 @@ const styles = StyleSheet.create({
     width: "100%",
     height: 140,
     borderRadius: 18,
-    backgroundColor: "#162640",
+    backgroundColor: "#1B2438",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.06)",
     padding: 8,
@@ -4339,18 +4350,18 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   weekBarActive: {
-    backgroundColor: "#4C7DFF",
+    backgroundColor: "#E8B563",
   },
   weekBarIdle: {
-    backgroundColor: "#203457",
+    backgroundColor: "#243248",
   },
   weekChartLabel: {
-    color: "#EAF0FF",
+    color: "#F8EDD6",
     fontSize: 12,
     fontWeight: "700",
   },
   weekChartMeta: {
-    color: "#9AAAC6",
+    color: "#AFA38C",
     fontSize: 11,
     fontWeight: "700",
   },
@@ -4365,7 +4376,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#162640",
+    backgroundColor: "#1B2438",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.06)",
   },
@@ -4378,7 +4389,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
   },
   streakDotText: {
-    color: "#9AAAC6",
+    color: "#AFA38C",
     fontSize: 12,
     fontWeight: "800",
   },
@@ -4386,7 +4397,7 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
   },
   sessionRow: {
-    backgroundColor: "#162640",
+    backgroundColor: "#1B2438",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.06)",
     borderRadius: 18,
@@ -4406,18 +4417,18 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   sessionRowTitle: {
-    color: "#F6F9FF",
+    color: "#F7F2E7",
     fontSize: 14,
     fontWeight: "700",
     flex: 1,
   },
   sessionRowMeta: {
-    color: "#9FB0D1",
+    color: "#C2A77E",
     fontSize: 12,
     fontWeight: "700",
   },
   sessionRowNote: {
-    color: "#D7E1F7",
+    color: "#F2E2BE",
     fontSize: 13,
     lineHeight: 19,
     backgroundColor: "rgba(255,255,255,0.04)",
@@ -4429,7 +4440,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   reflectionCard: {
-    backgroundColor: "#162640",
+    backgroundColor: "#1B2438",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.06)",
     borderRadius: 18,
@@ -4453,18 +4464,18 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   reflectionTitle: {
-    color: "#F6F9FF",
+    color: "#F7F2E7",
     fontSize: 14,
     fontWeight: "800",
     flex: 1,
   },
   reflectionMeta: {
-    color: "#8FA2C8",
+    color: "#A69884",
     fontSize: 12,
     fontWeight: "700",
   },
   reflectionBody: {
-    color: "#DCE6FF",
+    color: "#F6E6C2",
     fontSize: 14,
     lineHeight: 20,
   },
@@ -4475,9 +4486,9 @@ const styles = StyleSheet.create({
   },
   reflectionActionButton: {
     alignSelf: "flex-start",
-    backgroundColor: "rgba(76,125,255,0.18)",
+    backgroundColor: "rgba(232,181,99,0.18)",
     borderWidth: 1,
-    borderColor: "rgba(76,125,255,0.30)",
+    borderColor: "rgba(232,181,99,0.30)",
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -4498,7 +4509,7 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.98 }],
   },
   reflectionActionButtonText: {
-    color: "#F6F9FF",
+    color: "#F7F2E7",
     fontSize: 12,
     fontWeight: "800",
   },
@@ -4518,7 +4529,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   inlineLoaderText: {
-    color: "#BFD0FF",
+    color: "#F0C988",
     fontSize: 14,
     fontWeight: "600",
   },
@@ -4529,26 +4540,26 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   label: {
-    color: "#EAF0FF",
+    color: "#F8EDD6",
     fontSize: 14,
     fontWeight: "600",
   },
   input: {
-    backgroundColor: "#162640",
+    backgroundColor: "#1B2438",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.08)",
     borderRadius: 16,
-    color: "#F7FAFF",
+    color: "#F8F3E9",
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
   },
   textArea: {
-    backgroundColor: "#162640",
+    backgroundColor: "#1B2438",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.08)",
     borderRadius: 16,
-    color: "#F7FAFF",
+    color: "#F8F3E9",
     paddingHorizontal: 14,
     paddingTop: 12,
     paddingBottom: 12,
@@ -4561,7 +4572,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   choiceChip: {
-    backgroundColor: "#162640",
+    backgroundColor: "#1B2438",
     borderColor: "rgba(255,255,255,0.08)",
     borderWidth: 1,
     borderRadius: 999,
@@ -4569,24 +4580,24 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   choiceChipSelected: {
-    backgroundColor: "rgba(76,125,255,0.20)",
-    borderColor: "rgba(76,125,255,0.65)",
+    backgroundColor: "rgba(232,181,99,0.20)",
+    borderColor: "rgba(232,181,99,0.65)",
   },
   choiceChipText: {
-    color: "#C6D1E8",
+    color: "#D6CFBE",
     fontSize: 13,
     fontWeight: "700",
   },
   choiceChipTextSelected: {
-    color: "#F6F9FF",
+    color: "#F7F2E7",
   },
   message: {
-    color: "#DDE6F6",
+    color: "#F4E6C4",
     fontSize: 14,
     lineHeight: 20,
   },
   primaryButton: {
-    backgroundColor: "#4C7DFF",
+    backgroundColor: "#E8B563",
     borderRadius: 16,
     paddingVertical: 14,
     alignItems: "center",
@@ -4603,7 +4614,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   inlineLink: {
-    color: "#BFD0FF",
+    color: "#F0C988",
     fontSize: 13,
     fontWeight: "600",
     textAlign: "center",
@@ -4619,19 +4630,19 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#203457",
+    backgroundColor: "#243248",
   },
   stepIndexText: {
-    color: "#E7ECF8",
+    color: "#F7EDD4",
     fontWeight: "700",
   },
   stepText: {
-    color: "#D5DDF0",
+    color: "#F0DEB8",
     fontSize: 15,
     flex: 1,
   },
   lessonCard: {
-    backgroundColor: "#162640",
+    backgroundColor: "#1B2438",
     borderRadius: 18,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.06)",
@@ -4640,7 +4651,7 @@ const styles = StyleSheet.create({
   },
   lessonCardPressed: {
     transform: [{ scale: 0.99 }],
-    borderColor: "rgba(76,125,255,0.45)",
+    borderColor: "rgba(232,181,99,0.45)",
   },
   lessonCardHeader: {
     flexDirection: "row",
@@ -4671,12 +4682,12 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 4,
-    backgroundColor: "#162640",
+    backgroundColor: "#1B2438",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.08)",
   },
   lessonStatusBadgeNew: {
-    backgroundColor: "rgba(127,151,199,0.14)",
+    backgroundColor: "rgba(156,142,120,0.14)",
   },
   lessonStatusBadgeProgress: {
     backgroundColor: "rgba(244,162,97,0.14)",
@@ -4690,7 +4701,7 @@ const styles = StyleSheet.create({
     borderStyle: "dashed",
   },
   lessonMasteryBadgeNew: {
-    backgroundColor: "rgba(127,151,199,0.10)",
+    backgroundColor: "rgba(156,142,120,0.10)",
   },
   lessonMasteryBadgeProgress: {
     backgroundColor: "rgba(244,162,97,0.12)",
@@ -4701,7 +4712,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(42,157,143,0.44)",
   },
   lessonStatusText: {
-    color: "#C6D1E8",
+    color: "#D6CFBE",
     fontSize: 11,
     fontWeight: "800",
     letterSpacing: 0.4,
@@ -4710,22 +4721,22 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
   },
   lessonMeta: {
-    color: "#9FB0D1",
+    color: "#C2A77E",
     fontSize: 12,
     fontWeight: "700",
   },
   lessonTitle: {
-    color: "#F6F9FF",
+    color: "#F7F2E7",
     fontSize: 17,
     fontWeight: "800",
   },
   lessonDescription: {
-    color: "#B7C4DF",
+    color: "#D3BD92",
     fontSize: 14,
     lineHeight: 20,
   },
   lessonProgressMeta: {
-    color: "#8FA2C8",
+    color: "#A69884",
     fontSize: 12,
     fontWeight: "700",
     letterSpacing: 0.2,
@@ -4736,7 +4747,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   lessonPrompt: {
-    color: "#F6F9FF",
+    color: "#F7F2E7",
     fontSize: 17,
     lineHeight: 23,
     fontWeight: "700",
@@ -4748,7 +4759,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   reviewAnswerBox: {
-    backgroundColor: "#101B2E",
+    backgroundColor: "#131A28",
     borderRadius: 16,
     padding: 12,
     gap: 6,
@@ -4756,19 +4767,19 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.04)",
   },
   reviewAnswerLabel: {
-    color: "#7F97C7",
+    color: "#9C8E78",
     fontSize: 11,
     textTransform: "uppercase",
     fontWeight: "800",
     letterSpacing: 0.8,
   },
   reviewAnswerText: {
-    color: "#F6F9FF",
+    color: "#F7F2E7",
     fontSize: 17,
     fontWeight: "800",
   },
   summaryBox: {
-    backgroundColor: "#162640",
+    backgroundColor: "#1B2438",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.04)",
     borderRadius: 18,
@@ -4776,32 +4787,32 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   summaryBoxTitle: {
-    color: "#F6F9FF",
+    color: "#F7F2E7",
     fontSize: 16,
     fontWeight: "800",
     lineHeight: 22,
   },
   summaryBoxText: {
-    color: "#B7C4DF",
+    color: "#D3BD92",
     fontSize: 14,
     lineHeight: 20,
   },
   focusCard: {
-    backgroundColor: "rgba(76,125,255,0.10)",
+    backgroundColor: "rgba(232,181,99,0.10)",
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "rgba(76,125,255,0.18)",
+    borderColor: "rgba(232,181,99,0.18)",
     padding: 14,
     gap: 8,
   },
   focusTitle: {
-    color: "#F6F9FF",
+    color: "#F7F2E7",
     fontSize: 18,
     fontWeight: "800",
     lineHeight: 24,
   },
   focusDescription: {
-    color: "#C6D1E8",
+    color: "#D6CFBE",
     fontSize: 14,
     lineHeight: 20,
   },
@@ -4831,11 +4842,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.16)",
   },
   bookDotActive: {
-    backgroundColor: "#7C9CFF",
+    backgroundColor: "#F0C988",
     width: 18,
   },
   bookPageLabel: {
-    color: "#7F97C7",
+    color: "#9C8E78",
     fontSize: 12,
     fontWeight: "600",
   },
@@ -4867,7 +4878,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.06)",
   },
   bookNavButtonPrimary: {
-    backgroundColor: "#4C7DFF",
+    backgroundColor: "#E8B563",
   },
   bookNavButtonPressed: {
     opacity: 0.8,
@@ -4880,11 +4891,38 @@ const styles = StyleSheet.create({
   bookNavButtonTextPrimary: {
     color: "#FFFFFF",
   },
+  journalCard: {
+    backgroundColor: "#F7F2E7",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 14,
+    gap: 4,
+  },
+  journalEyebrow: {
+    color: "#9A6B2E",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  journalTitle: {
+    color: "#2A2620",
+    fontSize: 18,
+    fontWeight: "700",
+    fontFamily: SERIF_FONT,
+    marginTop: 2,
+  },
+  journalDescription: {
+    color: "#6B6457",
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 2,
+  },
   quizColumn: {
     gap: 10,
   },
   learnNoteCard: {
-    backgroundColor: "#162640",
+    backgroundColor: "#1B2438",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.06)",
     borderRadius: 16,
@@ -4892,22 +4930,22 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   learnNoteHeading: {
-    color: "#F6F9FF",
+    color: "#F7F2E7",
     fontSize: 14,
     fontWeight: "800",
   },
   learnNoteBody: {
-    color: "#C6D1E8",
+    color: "#D6CFBE",
     fontSize: 14,
     lineHeight: 20,
   },
   lessonHint: {
-    color: "#A9B7D1",
+    color: "#BCB29C",
     fontSize: 13,
     lineHeight: 19,
   },
   lessonTapLabel: {
-    color: "#8FA2C8",
+    color: "#A69884",
     fontSize: 12,
     fontWeight: "700",
     letterSpacing: 0.3,
@@ -4921,7 +4959,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    backgroundColor: "#162640",
+    backgroundColor: "#1B2438",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.06)",
     borderRadius: 18,
@@ -4936,7 +4974,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   achievementTitle: {
-    color: "#F6F9FF",
+    color: "#F7F2E7",
     fontSize: 15,
     fontWeight: "800",
   },
@@ -4944,7 +4982,7 @@ const styles = StyleSheet.create({
     color: "#EFFFFA",
   },
   achievementDescription: {
-    color: "#9AAAC6",
+    color: "#AFA38C",
     fontSize: 13,
     lineHeight: 18,
   },
@@ -4952,7 +4990,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: "#203457",
+    backgroundColor: "#243248",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.06)",
   },
@@ -4961,7 +4999,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(42,157,143,0.45)",
   },
   achievementPillText: {
-    color: "#C6D1E8",
+    color: "#D6CFBE",
     fontSize: 11,
     fontWeight: "800",
     letterSpacing: 0.4,
@@ -4971,9 +5009,9 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
   },
   spotlightCard: {
-    backgroundColor: "rgba(76,125,255,0.14)",
+    backgroundColor: "rgba(232,181,99,0.14)",
     borderWidth: 1,
-    borderColor: "rgba(76,125,255,0.22)",
+    borderColor: "rgba(232,181,99,0.22)",
     borderRadius: 20,
     padding: 16,
     gap: 8,
@@ -4993,12 +5031,12 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   spotlightTitle: {
-    color: "#F6F9FF",
+    color: "#F7F2E7",
     fontSize: 18,
     fontWeight: "800",
   },
   spotlightDescription: {
-    color: "#DCE6FF",
+    color: "#F6E6C2",
     fontSize: 14,
     lineHeight: 20,
   },
@@ -5012,7 +5050,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    backgroundColor: "#162640",
+    backgroundColor: "#1B2438",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.08)",
     borderRadius: 999,
@@ -5020,24 +5058,24 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   filterChipActive: {
-    backgroundColor: "rgba(76,125,255,0.18)",
-    borderColor: "rgba(76,125,255,0.72)",
+    backgroundColor: "rgba(232,181,99,0.18)",
+    borderColor: "rgba(232,181,99,0.72)",
   },
   filterChipText: {
-    color: "#D3DCF1",
+    color: "#EFDCB5",
     fontSize: 13,
     fontWeight: "800",
   },
   filterChipTextActive: {
-    color: "#F6F9FF",
+    color: "#F7F2E7",
   },
   filterChipCount: {
-    color: "#8FA2C8",
+    color: "#A69884",
     fontSize: 12,
     fontWeight: "800",
   },
   filterChipCountActive: {
-    color: "#DCE6FF",
+    color: "#F6E6C2",
   },
   skillRow: {
     gap: 8,
@@ -5048,12 +5086,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   skillLabel: {
-    color: "#EAF0FF",
+    color: "#F8EDD6",
     fontSize: 14,
     fontWeight: "600",
   },
   skillValue: {
-    color: "#A9B7D1",
+    color: "#BCB29C",
     fontSize: 14,
     fontWeight: "700",
   },
@@ -5061,7 +5099,7 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 999,
     overflow: "hidden",
-    backgroundColor: "#1B2942",
+    backgroundColor: "#1F2B3E",
   },
   progressFill: {
     height: "100%",
@@ -5073,13 +5111,13 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   pill: {
-    backgroundColor: "#1A2740",
+    backgroundColor: "#1E2A3E",
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
   pillText: {
-    color: "#D3DCF1",
+    color: "#EFDCB5",
     fontSize: 13,
     fontWeight: "600",
   },
@@ -5088,7 +5126,7 @@ const styles = StyleSheet.create({
     gap: 10,
     padding: 10,
     marginTop: 4,
-    backgroundColor: "#101B2E",
+    backgroundColor: "#131A28",
     borderRadius: 22,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.06)",
@@ -5099,13 +5137,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: 12,
     borderRadius: 16,
-    backgroundColor: "#162640",
+    backgroundColor: "#1B2438",
   },
   tabButtonActive: {
-    backgroundColor: "#4C7DFF",
+    backgroundColor: "#E8B563",
   },
   tabButtonText: {
-    color: "#C6D1E8",
+    color: "#D6CFBE",
     fontSize: 13,
     fontWeight: "800",
   },

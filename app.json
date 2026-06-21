@@ -12,7 +12,7 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "splash": {
-      "backgroundColor": "#0E1726"
+      "backgroundColor": "#11141C"
     },
     "assetBundlePatterns": [
       "**/*"
