@@ -2273,6 +2273,12 @@ export default function App() {
     const pages = buildLessonPages(content);
     const safePageIndex = Math.min(pageIndex, pages.length - 1);
 
+    function goToPage(targetIndex: number) {
+      const clamped = Math.max(0, Math.min(targetIndex, pages.length - 1));
+      setPageIndex(clamped);
+      lessonPagerRef.current?.scrollTo({ x: clamped * SCREEN_WIDTH, animated: true });
+    }
+
     return (
       <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="light-content" />
@@ -2601,6 +2607,38 @@ export default function App() {
             </View>
           ))}
         </ScrollView>
+
+        <View style={styles.bookNavRow}>
+          {safePageIndex > 0 ? (
+            <Pressable
+              onPress={() => goToPage(safePageIndex - 1)}
+              style={({ pressed }) => [
+                styles.bookNavButton,
+                pressed && styles.bookNavButtonPressed,
+              ]}
+            >
+              <Text style={styles.bookNavButtonText}>‹ Back</Text>
+            </Pressable>
+          ) : (
+            <View style={styles.bookNavButton} />
+          )}
+          {safePageIndex < pages.length - 1 ? (
+            <Pressable
+              onPress={() => goToPage(safePageIndex + 1)}
+              style={({ pressed }) => [
+                styles.bookNavButton,
+                styles.bookNavButtonPrimary,
+                pressed && styles.bookNavButtonPressed,
+              ]}
+            >
+              <Text style={[styles.bookNavButtonText, styles.bookNavButtonTextPrimary]}>
+                Next ›
+              </Text>
+            </Pressable>
+          ) : (
+            <View style={styles.bookNavButton} />
+          )}
+        </View>
 
         <TabBar activeTab={currentNavTab} onHome={handleGoHome} onLessons={handleGoLessons} onReview={handleGoReview} onJournal={handleGoJournal} onProgress={handleGoProgress} />
       </SafeAreaView>
@@ -4968,6 +5006,36 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     padding: 20,
     gap: 14,
+  },
+  bookNavRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.06)",
+  },
+  bookNavButton: {
+    minWidth: 96,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 999,
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  bookNavButtonPrimary: {
+    backgroundColor: "#4C7DFF",
+  },
+  bookNavButtonPressed: {
+    opacity: 0.8,
+  },
+  bookNavButtonText: {
+    color: "#D4DDF2",
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  bookNavButtonTextPrimary: {
+    color: "#FFFFFF",
   },
   quizColumn: {
     gap: 10,
