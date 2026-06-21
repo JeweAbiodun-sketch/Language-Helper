@@ -4330,7 +4330,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   infoBanner: {
-    backgroundColor: "#1B2438",
+    backgroundColor: "transparent",
     borderColor: "rgba(255,255,255,0.06)",
     borderWidth: 1,
     borderRadius: 18,
@@ -4342,7 +4342,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   hero: {
-    backgroundColor: "#182234",
+    backgroundColor: "transparent",
     borderRadius: 28,
     padding: 16,
     borderWidth: 1,
@@ -4469,7 +4469,7 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    backgroundColor: "#1C2940",
+    backgroundColor: "transparent",
     borderRadius: 18,
     paddingVertical: 12,
     paddingHorizontal: 10,
@@ -4489,7 +4489,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   card: {
-    backgroundColor: "#131A28",
+    backgroundColor: "transparent",
     borderRadius: 22,
     padding: 16,
     borderWidth: 1,
@@ -4604,7 +4604,7 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
   },
   sessionRow: {
-    backgroundColor: "#1B2438",
+    backgroundColor: "transparent",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.06)",
     borderRadius: 18,
@@ -4647,7 +4647,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   reflectionCard: {
-    backgroundColor: "#1B2438",
+    backgroundColor: "transparent",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.06)",
     borderRadius: 18,
@@ -4881,7 +4881,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   lessonCard: {
-    backgroundColor: "#1B2438",
+    backgroundColor: "transparent",
     borderRadius: 18,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.06)",
@@ -4998,7 +4998,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   reviewAnswerBox: {
-    backgroundColor: "#131A28",
+    backgroundColor: "transparent",
     borderRadius: 16,
     padding: 12,
     gap: 6,
@@ -5018,7 +5018,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   summaryBox: {
-    backgroundColor: "#1B2438",
+    backgroundColor: "transparent",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.04)",
     borderRadius: 18,
@@ -5161,7 +5161,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   learnNoteCard: {
-    backgroundColor: "#1B2438",
+    backgroundColor: "transparent",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.06)",
     borderRadius: 16,
@@ -5198,7 +5198,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    backgroundColor: "#1B2438",
+    backgroundColor: "transparent",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.06)",
     borderRadius: 18,
