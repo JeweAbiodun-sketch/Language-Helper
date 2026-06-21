@@ -1,0 +1,964 @@
+diff --git a/App.tsx b/App.tsx
+index 0242d6d..192fd58 100644
+--- a/App.tsx
++++ b/App.tsx
+@@ -15,10 +15,12 @@ import { StatusBar as ExpoStatusBar } from "expo-status-bar";
+ import { Session } from "@supabase/supabase-js";
+ import { isSupabaseConfigured, supabase } from "./src/lib/supabase";
+ import {
+-  lessonQuizTemplates,
++  getLessonContent,
+   lessonSteps,
+   placementQuestions,
++  type LessonContent,
+ } from "./src/content/lessonContent";
++import LessonVideo from "./src/components/LessonVideo";
+ 
+ type Profile = {
+   id: string;
+@@ -54,6 +56,7 @@ type Lesson = {
+   description: string | null;
+   cefr_level: string;
+   topic: string;
++  content_key: string | null;
+   estimated_minutes: number;
+   sort_order: number;
+ };
+@@ -98,12 +101,7 @@ type SyncQueueItem =
+       };
+     };
+ 
+-type LessonQuiz = {
+-  prompt: string;
+-  options: readonly string[];
+-  correctIndex: number;
+-  hint: string;
+-};
++type LessonPhase = "learn" | "practice";
+ 
+ type LessonResult = {
+   lesson: Lesson;
+@@ -390,20 +388,6 @@ function buildHandoffNotice(
+   return `Retry: ${nextLesson.title}.`;
+ }
+ 
+-function buildLessonQuizFromContent(lesson: Lesson): LessonQuiz {
+-  const topic = `${lesson.title} ${lesson.topic}`.toLowerCase();
+-
+-  if (topic.includes("accusative")) {
+-    return lessonQuizTemplates.accusative;
+-  }
+-
+-  if (topic.includes("greeting") || topic.includes("order")) {
+-    return lessonQuizTemplates.greeting;
+-  }
+-
+-  return lessonQuizTemplates.default;
+-}
+-
+ function buildSrsCardHint(prompt: string): string {
+   const lower = prompt.toLowerCase();
+ 
+@@ -440,9 +424,8 @@ export default function App() {
+   const [lessonFilter, setLessonFilter] = useState<LessonFilter>("all");
+   const [activeLesson, setActiveLesson] = useState<Lesson | null>(null);
+   const [pendingLessonFocus, setPendingLessonFocus] = useState<LessonFilter | null>(null);
+-  const [selectedQuizAnswer, setSelectedQuizAnswer] = useState<number | null>(
+-    null
+-  );
++  const [lessonPhase, setLessonPhase] = useState<LessonPhase>("learn");
++  const [quizAnswers, setQuizAnswers] = useState<Array<number | null>>([]);
+   const [lessonNote, setLessonNote] = useState("");
+   const [lessonSaving, setLessonSaving] = useState(false);
+   const [lessonResult, setLessonResult] = useState<LessonResult | null>(null);
+@@ -1224,7 +1207,7 @@ export default function App() {
+ 
+       const { data, error } = await supabase
+         .from("lessons")
+-        .select("id,title,description,cefr_level,topic,estimated_minutes,sort_order")
++        .select("id,title,description,cefr_level,topic,content_key,estimated_minutes,sort_order")
+         .eq("cefr_level", activeProfile.cefr_level)
+         .order("sort_order", { ascending: true });
+ 
+@@ -1629,7 +1612,10 @@ export default function App() {
+ 
+   function handleOpenLesson(lesson: Lesson) {
+     setActiveLesson(lesson);
+-    setSelectedQuizAnswer(null);
++    setLessonPhase("learn");
++    setQuizAnswers(
++      Array.from({ length: getLessonContent(lesson.content_key).quiz.length }, () => null)
++    );
+     setLessonNote("");
+     setLessonHistoryQuery("");
+     setMessage(null);
+@@ -1637,7 +1623,8 @@ export default function App() {
+ 
+   function handleCloseLesson() {
+     setActiveLesson(null);
+-    setSelectedQuizAnswer(null);
++    setLessonPhase("learn");
++    setQuizAnswers([]);
+     setLessonNote("");
+   }
+ 
+@@ -1700,7 +1687,8 @@ export default function App() {
+       }
+     }
+     setLessonResult(null);
+-    setSelectedQuizAnswer(null);
++    setQuizAnswers([]);
++    setLessonPhase("learn");
+     setActiveLesson(null);
+   }
+ 
+@@ -1708,7 +1696,13 @@ export default function App() {
+     if (!lessonResult) return;
+     setActiveLesson(lessonResult.lesson);
+     setLessonResult(null);
+-    setSelectedQuizAnswer(null);
++    setLessonPhase("practice");
++    setQuizAnswers(
++      Array.from(
++        { length: getLessonContent(lessonResult.lesson.content_key).quiz.length },
++        () => null
++      )
++    );
+     setLessonNote("");
+   }
+ 
+@@ -1843,15 +1837,24 @@ export default function App() {
+       return;
+     }
+ 
+-    if (selectedQuizAnswer === null) {
+-      setMessage("Choose an answer before completing the lesson.");
++    const content = getLessonContent(activeLesson.content_key);
++
++    if (quizAnswers.some((answer) => answer === null)) {
++      setMessage("Answer every question before completing the lesson.");
+       return;
+     }
+ 
+-    const quiz = buildLessonQuizFromContent(activeLesson);
+-    const isCorrect = selectedQuizAnswer === quiz.correctIndex;
++    const correctCount = content.quiz.reduce(
++      (count, question, index) =>
++        count + (quizAnswers[index] === question.correctIndex ? 1 : 0),
++      0
++    );
++    const accuracy =
++      content.quiz.length > 0
++        ? Math.round((correctCount / content.quiz.length) * 100)
++        : 0;
++    const isCorrect = accuracy >= 80;
+     const xpEarned = isCorrect ? 25 : 10;
+-    const accuracy = isCorrect ? 100 : 70;
+     const nextTotalXp = (profile?.total_xp ?? 0) + xpEarned;
+     const nextStreakDays = (profile?.streak_days ?? 0) + 1;
+ 
+@@ -1862,7 +1865,7 @@ export default function App() {
+       lesson_id: activeLesson.id,
+       duration_seconds: activeLesson.estimated_minutes * 60,
+       accuracy,
+-      hint_usage: selectedQuizAnswer === null ? 1 : 0,
++      hint_usage: 0,
+       note: lessonNote.trim() || null,
+     };
+ 
+@@ -2239,7 +2242,7 @@ export default function App() {
+   }
+ 
+   if (screen === "lesson" && activeLesson) {
+-    const quiz = buildLessonQuizFromContent(activeLesson);
++    const content = getLessonContent(activeLesson.content_key);
+ 
+     return (
+       <SafeAreaView style={styles.safeArea}>
+@@ -2256,44 +2259,83 @@ export default function App() {
+             </Text>
+             <View style={styles.connectionPill}>
+               <Text style={styles.connectionPillText}>
+-                {activeLesson.estimated_minutes} minute lesson
++                {activeLesson.estimated_minutes} minute lesson · {lessonPhase === "learn" ? "Step 1: Watch & learn" : "Step 2: Practice"}
+               </Text>
+             </View>
+             {handoffNotice ? <Text style={styles.cardDescription}>{handoffNotice}</Text> : null}
+             <PrimaryButton label="Back to dashboard" onPress={handleCloseLesson} />
+           </View>
+ 
++          {lessonPhase === "learn" ? (
+             <SectionCard
+-              title="Practice prompt"
+-              eyebrow="Lesson step"
+-              description="Answer one quick question, then mark the lesson complete."
++              title="Watch & learn"
++              eyebrow="Lesson step 1 of 2"
++              description={content.learnIntro}
+             >
+-            <Text style={styles.lessonPrompt}>{quiz.prompt}</Text>
+-            <View style={styles.quizColumn}>
+-              {quiz.options.map((option, index) => (
+-                <ChoiceChip
+-                  key={option}
+-                  label={option}
+-                  selected={selectedQuizAnswer === index}
+-                  onPress={() => setSelectedQuizAnswer(index)}
+-                />
+-              ))}
+-            </View>
+-            <Text style={styles.lessonHint}>Hint: {quiz.hint}</Text>
+-            <View style={styles.field}>
+-              <Text style={styles.label}>Session note</Text>
+-              <TextInput
+-                value={lessonNote}
+-                onChangeText={setLessonNote}
+-                placeholder="What felt tricky or worth remembering?"
+-                placeholderTextColor="#7384A6"
+-                style={styles.textArea}
+-                multiline
+-                numberOfLines={3}
+-                textAlignVertical="top"
++              <LessonVideo videoId={content.videoId} title={content.videoTitle} />
++              <View style={styles.learnNotesColumn}>
++                {content.learnNotes.map((note) => (
++                  <View key={note.heading} style={styles.learnNoteCard}>
++                    <Text style={styles.learnNoteHeading}>{note.heading}</Text>
++                    <Text style={styles.learnNoteBody}>{note.body}</Text>
++                  </View>
++                ))}
++              </View>
++              <PrimaryButton
++                label="Start practice"
++                onPress={() => setLessonPhase("practice")}
+               />
+-            </View>
+-          </SectionCard>
++            </SectionCard>
++          ) : (
++            <SectionCard
++              title="Practice"
++              eyebrow="Lesson step 2 of 2"
++              description="Answer each question, then mark the lesson complete."
++            >
++              <View style={styles.quizColumn}>
++                {content.quiz.map((question, questionIndex) => (
++                  <View key={question.id} style={styles.field}>
++                    <Text style={styles.label}>
++                      {questionIndex + 1}. {question.prompt}
++                    </Text>
++                    <View style={styles.choiceRow}>
++                      {question.options.map((option, optionIndex) => (
++                        <ChoiceChip
++                          key={option}
++                          label={option}
++                          selected={quizAnswers[questionIndex] === optionIndex}
++                          onPress={() =>
++                            setQuizAnswers((current) =>
++                              current.map((answer, index) =>
++                                index === questionIndex ? optionIndex : answer
++                              )
++                            )
++                          }
++                        />
++                      ))}
++                    </View>
++                    <Text style={styles.lessonHint}>Hint: {question.hint}</Text>
++                  </View>
++                ))}
++              </View>
++              <Pressable onPress={() => setLessonPhase("learn")}>
++                <Text style={styles.inlineLink}>Back to the video and notes</Text>
++              </Pressable>
++              <View style={styles.field}>
++                <Text style={styles.label}>Session note</Text>
++                <TextInput
++                  value={lessonNote}
++                  onChangeText={setLessonNote}
++                  placeholder="What felt tricky or worth remembering?"
++                  placeholderTextColor="#7384A6"
++                  style={styles.textArea}
++                  multiline
++                  numberOfLines={3}
++                  textAlignVertical="top"
++                />
++              </View>
++            </SectionCard>
++          )}
+ 
+           <SectionCard
+             title="Your history"
+@@ -2494,26 +2536,15 @@ export default function App() {
+             ) : null}
+           </SectionCard>
+ 
+-          <SectionCard
+-            title="What to focus on"
+-            eyebrow="Lesson plan"
+-            description="A simple three-part loop keeps each session short and consistent."
+-          >
+-            <View style={styles.pillRow}>
+-              <Pill label="Vocabulary" />
+-              <Pill label="Grammar" />
+-              <Pill label="Listening" />
+-              <Pill label="Speaking" />
+-            </View>
+-          </SectionCard>
+-
+           {message ? <InfoBanner text={message} /> : null}
+ 
+-          <PrimaryButton
+-            label={lessonSaving ? "Saving lesson..." : "Complete lesson"}
+-            onPress={handleCompleteLesson}
+-            disabled={lessonSaving}
+-          />
++          {lessonPhase === "practice" ? (
++            <PrimaryButton
++              label={lessonSaving ? "Saving lesson..." : "Complete lesson"}
++              onPress={handleCompleteLesson}
++              disabled={lessonSaving || quizAnswers.some((answer) => answer === null)}
++            />
++          ) : null}
+           <TabBar activeTab={currentNavTab} onHome={handleGoHome} onLessons={handleGoLessons} onReview={handleGoReview} onJournal={handleGoJournal} onProgress={handleGoProgress} />
+         </ScrollView>
+       </SafeAreaView>
+@@ -4840,6 +4871,28 @@ const styles = StyleSheet.create({
+   quizColumn: {
+     gap: 10,
+   },
++  learnNotesColumn: {
++    gap: 10,
++    marginTop: 4,
++  },
++  learnNoteCard: {
++    backgroundColor: "#162640",
++    borderWidth: 1,
++    borderColor: "rgba(255,255,255,0.06)",
++    borderRadius: 16,
++    padding: 14,
++    gap: 6,
++  },
++  learnNoteHeading: {
++    color: "#F6F9FF",
++    fontSize: 14,
++    fontWeight: "800",
++  },
++  learnNoteBody: {
++    color: "#C6D1E8",
++    fontSize: 14,
++    lineHeight: 20,
++  },
+   lessonHint: {
+     color: "#A9B7D1",
+     fontSize: 13,
+diff --git a/package.json b/package.json
+index 99d3764..26ea91e 100644
+--- a/package.json
++++ b/package.json
+@@ -18,7 +18,9 @@
+     "expo-status-bar": "~2.2.3",
+     "react": "19.0.0",
+     "react-native": "0.79.4",
+-    "react-native-url-polyfill": "^2.0.0"
++    "react-native-url-polyfill": "^2.0.0",
++    "react-native-webview": "13.13.5",
++    "react-native-youtube-iframe": "^2.3.0"
+   },
+   "devDependencies": {
+     "@types/react": "~19.0.10",
+diff --git a/src/components/LessonVideo.tsx b/src/components/LessonVideo.tsx
+new file mode 100644
+index 0000000..8f11f22
+--- /dev/null
++++ b/src/components/LessonVideo.tsx
+@@ -0,0 +1,81 @@
++import React, { useState } from "react";
++import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
++import YoutubePlayer from "react-native-youtube-iframe";
++
++type LessonVideoProps = {
++  videoId: string;
++  title: string;
++};
++
++const VIDEO_HEIGHT = 200;
++
++export default function LessonVideo({ videoId, title }: LessonVideoProps) {
++  const [playing, setPlaying] = useState(false);
++
++  if (!videoId) {
++    return (
++      <View style={styles.placeholder}>
++        <Text style={styles.placeholderTitle}>Video coming soon</Text>
++        <Text style={styles.placeholderText}>
++          This lesson doesn't have a matching video yet. Add the YouTube video
++          id to this lesson's entry in lessonContent.ts to embed it here.
++        </Text>
++      </View>
++    );
++  }
++
++  return (
++    <View style={styles.wrapper}>
++      <YoutubePlayer
++        height={VIDEO_HEIGHT}
++        play={playing}
++        videoId={videoId}
++        onChangeState={(state: string) => {
++          if (state === "ended") setPlaying(false);
++        }}
++      />
++      <Pressable
++        onPress={() =>
++          Linking.openURL(`https://www.youtube.com/watch?v=${videoId}`)
++        }
++      >
++        <Text style={styles.openLink}>Open "{title}" on YouTube</Text>
++      </Pressable>
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  wrapper: {
++    borderRadius: 16,
++    overflow: "hidden",
++    backgroundColor: "#000000",
++  },
++  openLink: {
++    color: "#BFD0FF",
++    fontSize: 12,
++    fontWeight: "600",
++    textAlign: "center",
++    paddingVertical: 8,
++    backgroundColor: "#101B2E",
++  },
++  placeholder: {
++    backgroundColor: "#162640",
++    borderRadius: 16,
++    borderWidth: 1,
++    borderStyle: "dashed",
++    borderColor: "rgba(255,255,255,0.18)",
++    padding: 16,
++    gap: 6,
++  },
++  placeholderTitle: {
++    color: "#F6F9FF",
++    fontSize: 15,
++    fontWeight: "700",
++  },
++  placeholderText: {
++    color: "#9AAAC6",
++    fontSize: 13,
++    lineHeight: 19,
++  },
++});
+diff --git a/src/content/lessonContent.ts b/src/content/lessonContent.ts
+index 4d547d8..d714743 100644
+--- a/src/content/lessonContent.ts
++++ b/src/content/lessonContent.ts
+@@ -1,3 +1,390 @@
++// Static curriculum content for the app.
++//
++// Each lesson row in Supabase (`public.lessons`) carries a `content_key`.
++// That key looks up the actual teaching content here: a short video to
++// watch first (the "Learn" phase), a few plain-language notes, and then a
++// small multi-question quiz (the "Practice" phase).
++//
++// IMPORTANT: `videoId` is the YouTube video ID (the part after `v=` in a
++// youtube.com/watch?v=... URL, or the last path segment of a youtu.be/...
++// link) for the matching lesson in the "A1.1 - All you need" playlist by
++// Benjamin - Der Deutschlehrer. These are left blank on purpose: paste in
++// the real video ID once you've picked the matching video from the
++// playlist, and the lesson will start embedding it automatically. Until
++// then the Learn screen shows a friendly "video coming soon" placeholder
++// instead of crashing or guessing a wrong video.
++//
++// `learnNotes` are original explanations written for this app - they are
++// NOT transcribed from the video. Think of the video as the "teacher"
++// and these notes as the short recap a student would jot down afterwards.
++
++export type LearnNote = {
++  heading: string;
++  body: string;
++};
++
++export type QuizQuestion = {
++  id: string;
++  prompt: string;
++  options: readonly string[];
++  correctIndex: number;
++  hint: string;
++};
++
++export type LessonContent = {
++  contentKey: string;
++  videoId: string;
++  videoTitle: string;
++  learnIntro: string;
++  learnNotes: LearnNote[];
++  quiz: QuizQuestion[];
++};
++
++export const lessonContentByKey: Record<string, LessonContent> = {
++  "greetings-cafe": {
++    contentKey: "greetings-cafe",
++    videoId: "",
++    videoTitle: "Greetings and polite requests (A1.1)",
++    learnIntro:
++      "Before you order anything, you need two things: a greeting that fits the situation, and a polite way to ask for what you want. Watch the video, then check the notes below.",
++    learnNotes: [
++      {
++        heading: "Greetings change with the situation",
++        body: "\"Hallo\" is casual, fine for friends or people your own age. With staff, strangers, or anyone older, \"Guten Tag\" is the safe default at any time of day. \"Guten Morgen\" and \"Guten Abend\" are time-specific versions of the same idea.",
++      },
++      {
++        heading: "\"Ich hätte gern...\" is your politeness shortcut",
++        body: "\"Ich will Kaffee\" (I want coffee) sounds blunt and demanding in German, even though it's a direct translation of normal English. \"Ich hätte gern einen Kaffee\" (I would like a coffee) is the standard polite way to order almost anything.",
++      },
++      {
++        heading: "Cafe basics",
++        body: "der Kaffee (coffee), der Tee (tea), das Wasser (water), die Milch (milk), der Zucker (sugar). Notice each word has its own article (der/die/das) - there's no shortcut, you just learn them with the word.",
++      },
++    ],
++    quiz: [
++      {
++        id: "greetings-cafe-q1",
++        prompt: "You walk into a café you've never visited. What's the safest greeting?",
++        options: ["Na?", "Guten Tag", "Tschüss"],
++        correctIndex: 1,
++        hint: "\"Guten Tag\" works at any time of day with people you don't know.",
++      },
++      {
++        id: "greetings-cafe-q2",
++        prompt: "Which phrase politely asks for a coffee?",
++        options: ["Kaffee!", "Ich hätte gern einen Kaffee.", "Gib mir Kaffee."],
++        correctIndex: 1,
++        hint: "\"Ich hätte gern...\" is the gentle way to ask for something.",
++      },
++      {
++        id: "greetings-cafe-q3",
++        prompt: "Which word means \"milk\"?",
++        options: ["die Milch", "der Zucker", "das Wasser"],
++        correctIndex: 0,
++        hint: "It sounds close to its English cousin.",
++      },
++    ],
++  },
++
++  "accusative-basics": {
++    contentKey: "accusative-basics",
++    videoId: "",
++    videoTitle: "The accusative case, explained simply (A1.1)",
++    learnIntro:
++      "The accusative case sounds scary, but for a beginner it boils down to one small, learnable rule. Watch the video for the full explanation, then lock in the shortcut below.",
++    learnNotes: [
++      {
++        heading: "What \"accusative\" actually means",
++        body: "It just marks the direct object of a sentence - the thing the action is being done to. In \"I buy the bread,\" bread is the direct object, so it takes the accusative article in German.",
++      },
++      {
++        heading: "The one rule worth memorizing",
++        body: "Only the masculine article changes: der becomes den. Feminine (die), neuter (das), and plural (die) stay exactly the same in the accusative. That means most of the time you don't need to change anything at all.",
++      },
++      {
++        heading: "Examples",
++        body: "Ich kaufe das Brot (neuter - no change). Ich trinke die Milch (feminine - no change). Ich sehe den Mann (masculine: der → den - this is the one to watch for).",
++      },
++    ],
++    quiz: [
++      {
++        id: "accusative-basics-q1",
++        prompt: "Ich kaufe ___ Brot.",
++        options: ["den", "die", "das"],
++        correctIndex: 2,
++        hint: "Brot is neuter, and neuter never changes in the accusative.",
++      },
++      {
++        id: "accusative-basics-q2",
++        prompt: "Which gender is the only one that changes its article in the accusative case?",
++        options: ["Masculine", "Feminine", "Neuter"],
++        correctIndex: 0,
++        hint: "der becomes den - that's the change to remember.",
++      },
++      {
++        id: "accusative-basics-q3",
++        prompt: "Ich sehe ___ Mann.",
++        options: ["der", "den", "das"],
++        correctIndex: 1,
++        hint: "Mann is masculine, so der becomes den here.",
++      },
++    ],
++  },
++
++  "shopping-dialogue": {
++    contentKey: "shopping-dialogue",
++    videoId: "",
++    videoTitle: "Listening: a short shopping exchange (A1.1)",
++    learnIntro:
++      "Real conversations move fast, and that's normal even for confident learners. The trick is knowing what to listen for. Watch the video once for the gist, then again using the tips below.",
++    learnNotes: [
++      {
++        heading: "Don't chase every word",
++        body: "On a first listen, just try to catch numbers, prices, and product names. Those carry most of the meaning in a shopping conversation, even if you miss the small connecting words.",
++      },
++      {
++        heading: "Phrases you'll hear constantly",
++        body: "\"Was kostet das?\" (What does that cost?), \"Haben Sie...?\" (Do you have...?), and \"Das wäre dann alles\" (That would be everything) cover most of a simple shop interaction.",
++      },
++      {
++        heading: "Numbers are your anchor",
++        body: "Prices are usually the easiest thing to catch because numbers don't change with grammar the way other words do. If you can hear the number, you already know roughly what's happening.",
++      },
++    ],
++    quiz: [
++      {
++        id: "shopping-dialogue-q1",
++        prompt: "Which question asks for the price of something?",
++        options: ["Wie heißt das?", "Was kostet das?", "Wo ist das?"],
++        correctIndex: 1,
++        hint: "\"Kosten\" is the verb for \"to cost.\"",
++      },
++      {
++        id: "shopping-dialogue-q2",
++        prompt: "Which phrase means \"Do you have...?\"",
++        options: ["Haben Sie...?", "Sind Sie...?", "Gehen Sie...?"],
++        correctIndex: 0,
++        hint: "\"Haben\" is \"to have.\"",
++      },
++      {
++        id: "shopping-dialogue-q3",
++        prompt: "If someone says \"Das macht zehn Euro,\" how much do you owe?",
++        options: ["10 euros", "100 euros", "1000 euros"],
++        correctIndex: 0,
++        hint: "\"Zehn\" is one of the first numbers most courses teach - it means ten.",
++      },
++    ],
++  },
++
++  "daily-routines": {
++    contentKey: "daily-routines",
++    videoId: "",
++    videoTitle: "Talking about your day (A1.1)",
++    learnIntro:
++      "This lesson is about describing a normal day - what you do, and roughly when. Watch the video, then use the notes to anchor the grammar pattern.",
++    learnNotes: [
++      {
++        heading: "Saying when something happens",
++        body: "\"um\" + a clock time tells you exactly when: \"um acht Uhr\" (at eight o'clock). \"am Morgen / Nachmittag / Abend\" describes a broader part of the day (in the morning / afternoon / evening).",
++      },
++      {
++        heading: "Regular verb endings in the present tense",
++        body: "Most verbs follow a predictable pattern: ich -e, du -st, er/sie/es -t, wir -en, ihr -t, sie/Sie -en. For example, frühstücken (to have breakfast): ich frühstücke, du frühstückst, er frühstückt.",
++      },
++      {
++        heading: "Sequencing your day",
++        body: "\"zuerst\" (first), \"dann\" (then), and \"danach\" (after that) let you string actions together without needing more complex grammar.",
++      },
++    ],
++    quiz: [
++      {
++        id: "daily-routines-q1",
++        prompt: "Ich ___ um acht Uhr. (frühstücken - to have breakfast)",
++        options: ["frühstücke", "frühstückst", "frühstücken"],
++        correctIndex: 0,
++        hint: "\"ich\" takes the -e ending.",
++      },
++      {
++        id: "daily-routines-q2",
++        prompt: "Which word means \"first\" in a sequence of actions?",
++        options: ["zuerst", "danach", "vielleicht"],
++        correctIndex: 0,
++        hint: "It's the word you'd use to open a list of steps.",
++      },
++      {
++        id: "daily-routines-q3",
++        prompt: "\"um acht Uhr\" means:",
++        options: ["around eight people", "at eight o'clock", "eight things"],
++        correctIndex: 1,
++        hint: "\"Uhr\" relates to clock time here, not objects or people.",
++      },
++    ],
++  },
++
++  "family-introductions": {
++    contentKey: "family-introductions",
++    videoId: "",
++    videoTitle: "Family vocabulary and introductions (A1.1)",
++    learnIntro:
++      "Introducing yourself and your family is one of the most useful early conversations you'll have. Watch the video, then study the small but important word changes below.",
++    learnNotes: [
++      {
++        heading: "Core family words",
++        body: "die Mutter (mother), der Vater (father), die Schwester (sister), der Bruder (brother), die Eltern (parents).",
++      },
++      {
++        heading: "\"mein\" changes with the noun's gender",
++        body: "It's \"mein Bruder\" (masculine) but \"meine Schwester\" (feminine). This is the same pattern as der/die/das - the possessive word has to match the gender of the noun that follows it.",
++      },
++      {
++        heading: "Asking someone's name politely",
++        body: "\"Wie heißt du?\" is informal, used with people your own age or younger. \"Wie heißen Sie?\" is the formal version, used with strangers, older people, or in professional settings.",
++      },
++    ],
++    quiz: [
++      {
++        id: "family-introductions-q1",
++        prompt: "Which is correct for \"This is my sister\"?",
++        options: ["Das ist mein Schwester.", "Das ist meine Schwester.", "Das ist meins Schwester."],
++        correctIndex: 1,
++        hint: "Schwester is feminine, so it needs \"meine,\" not \"mein.\"",
++      },
++      {
++        id: "family-introductions-q2",
++        prompt: "Which phrase politely asks a stranger's name?",
++        options: ["Wie heißt du?", "Wie heißen Sie?", "Wer bist du?"],
++        correctIndex: 1,
++        hint: "The formal \"Sie\" form is safer with people you don't know.",
++      },
++      {
++        id: "family-introductions-q3",
++        prompt: "Which word means \"parents\"?",
++        options: ["die Eltern", "die Kinder", "die Geschwister"],
++        correctIndex: 0,
++        hint: "\"Geschwister\" actually means siblings, not parents.",
++      },
++    ],
++  },
++
++  "restaurant-orders": {
++    contentKey: "restaurant-orders",
++    videoId: "",
++    videoTitle: "Ordering at a restaurant (A1.1/A2)",
++    learnIntro:
++      "Restaurant German is mostly a handful of fixed phrases. Watch the video to hear them in context, then practice recognizing them below.",
++    learnNotes: [
++      {
++        heading: "Ordering politely",
++        body: "\"Ich nehme...\" (I'll take/have...) is the standard, friendly way to order food - softer than \"ich will,\" the same way it was for drinks earlier.",
++      },
++      {
++        heading: "Asking for the bill",
++        body: "\"Die Rechnung, bitte\" is all you need at the end of a meal. \"Die Speisekarte\" is the menu, in case you need to ask for one.",
++      },
++      {
++        heading: "A useful adjective",
++        body: "\"lecker\" (tasty) is a simple, natural way to react to food without needing a full sentence.",
++      },
++    ],
++    quiz: [
++      {
++        id: "restaurant-orders-q1",
++        prompt: "Which phrase politely orders food?",
++        options: ["Ich nehme die Suppe.", "Ich will Suppe.", "Suppe!"],
++        correctIndex: 0,
++        hint: "\"Ich nehme...\" is the standard ordering phrase.",
++      },
++      {
++        id: "restaurant-orders-q2",
++        prompt: "How do you ask for the bill?",
++        options: ["Die Rechnung, bitte.", "Die Karte, bitte.", "Der Tisch, bitte."],
++        correctIndex: 0,
++        hint: "\"Rechnung\" is the word for bill/invoice.",
++      },
++      {
++        id: "restaurant-orders-q3",
++        prompt: "What does \"die Speisekarte\" mean?",
++        options: ["the menu", "the receipt", "the waiter"],
++        correctIndex: 0,
++        hint: "\"Speise\" relates to food, \"Karte\" to a card or list.",
++      },
++    ],
++  },
++
++  "word-order-basics": {
++    contentKey: "word-order-basics",
++    videoId: "",
++    videoTitle: "Why the verb always comes second (A1.1/A2)",
++    learnIntro:
++      "German word order trips up a lot of beginners because it doesn't map directly onto English. Watch the video for the explanation, then study the rule that makes it click.",
++    learnNotes: [
++      {
++        heading: "The verb-second rule",
++        body: "In a normal German statement, the conjugated verb is always the second element - no matter what comes first. This is true even when the first element isn't the subject.",
++      },
++      {
++        heading: "Watch what happens when you start with something other than the subject",
++        body: "\"Ich trinke Kaffee\" (I drink coffee) - verb is second, as expected. But if you start the sentence with \"heute\" (today): \"Heute trinke ich Kaffee\" - the verb stays second, and \"ich\" moves after it.",
++      },
++      {
++        heading: "A rough ordering tendency",
++        body: "Beyond the verb-second rule, German tends to put time before place: \"Ich fahre morgen nach Berlin\" (I'm traveling tomorrow to Berlin) puts \"morgen\" (tomorrow) before \"nach Berlin\" (to Berlin).",
++      },
++    ],
++    quiz: [
++      {
++        id: "word-order-basics-q1",
++        prompt: "Heute ___ ich Kaffee.",
++        options: ["trinke", "trinken", "trinkst"],
++        correctIndex: 0,
++        hint: "The verb still has to agree with \"ich,\" even though it's not in its usual spot.",
++      },
++      {
++        id: "word-order-basics-q2",
++        prompt: "Which sentence correctly follows the verb-second rule?",
++        options: ["Heute ich trinke Kaffee.", "Heute trinke ich Kaffee.", "Trinke heute ich Kaffee."],
++        correctIndex: 1,
++        hint: "The verb needs to be the second element, right after \"heute.\"",
++      },
++      {
++        id: "word-order-basics-q3",
++        prompt: "In \"Ich fahre morgen nach Berlin,\" what comes right after the subject \"Ich\"?",
++        options: ["the verb", "the time word", "the place"],
++        correctIndex: 0,
++        hint: "Subject, then verb, then everything else - that's the core pattern.",
++      },
++    ],
++  },
++};
++
++export const defaultLessonContent: LessonContent = {
++  contentKey: "default",
++  videoId: "",
++  videoTitle: "Lesson video",
++  learnIntro:
++    "This lesson doesn't have its matching video and notes wired up yet. You can still practice with the quick check below, or come back once the content has been added.",
++  learnNotes: [
++    {
++      heading: "Content coming soon",
++      body: "Add an entry to `lessonContentByKey` in src/content/lessonContent.ts with this lesson's content_key to give it a real video and notes.",
++    },
++  ],
++  quiz: [
++    {
++      id: "default-q1",
++      prompt: "Which response best matches a short, friendly German exchange?",
++      options: ["Ja, gerne", "Nein, niemals", "Vielleicht später"],
++      correctIndex: 0,
++      hint: "For a friendly practice exchange, a simple affirmative answer fits best.",
++    },
++  ],
++};
++
++export function getLessonContent(contentKey: string | null | undefined): LessonContent {
++  if (!contentKey) return defaultLessonContent;
++  return lessonContentByKey[contentKey] ?? defaultLessonContent;
++}
++
+ export const lessonSteps = [
+   "Warm-up vocab set: food and cafes",
+   "Grammar focus: accusative articles",
+@@ -31,24 +418,3 @@ export const placementQuestions = [
+     focus: "vocabulary",
+   },
+ ] as const;
+-
+-export const lessonQuizTemplates = {
+-  accusative: {
+-    prompt: "Which article fits 'I buy the bread'?",
+-    options: ["den Brot", "die Brot", "das Brot"],
+-    correctIndex: 0,
+-    hint: "Brot is neuter, but the accusative article matters here.",
+-  },
+-  greeting: {
+-    prompt: "Which phrase is the most polite way to start a cafe order?",
+-    options: ["Ich will Kaffee", "Guten Tag, ich haette gern Kaffee", "Kaffee jetzt"],
+-    correctIndex: 1,
+-    hint: "Polite requests usually sound softer and more formal.",
+-  },
+-  default: {
+-    prompt: "Which response best matches a short German practice dialogue?",
+-    options: ["Ja, gerne", "Nein, niemals", "Vielleicht spaeter"],
+-    correctIndex: 0,
+-    hint: "For a friendly practice exchange, a simple affirmative answer fits best.",
+-  },
+-} as const;
+diff --git a/supabase/schema.sql b/supabase/schema.sql
+index e61dec0..d8e2389 100644
+--- a/supabase/schema.sql
++++ b/supabase/schema.sql
+@@ -25,11 +25,15 @@ create table if not exists public.lessons (
+   description text,
+   cefr_level text not null default 'A1',
+   topic text not null,
++  content_key text,
+   estimated_minutes integer not null default 10,
+   sort_order integer not null default 0,
+   created_at timestamptz not null default now()
+ );
+ 
++alter table public.lessons
++add column if not exists content_key text;
++
+ create table if not exists public.skill_scores (
+   id uuid primary key default gen_random_uuid(),
+   user_id uuid not null references auth.users(id) on delete cascade,
+diff --git a/supabase/seed.sql b/supabase/seed.sql
+index 5d1f43e..2c28fae 100644
+--- a/supabase/seed.sql
++++ b/supabase/seed.sql
+@@ -1,4 +1,4 @@
+-insert into public.lessons (id, title, description, cefr_level, topic, estimated_minutes, sort_order)
++insert into public.lessons (id, title, description, cefr_level, topic, content_key, estimated_minutes, sort_order)
+ values
+   (
+     '11111111-1111-1111-1111-111111111111',
+@@ -6,6 +6,7 @@ values
+     'Learn how to order politely and greet people in a cafe.',
+     'A1',
+     'Greetings and ordering',
++    'greetings-cafe',
+     10,
+     1
+   ),
+@@ -15,6 +16,7 @@ values
+     'Practice the accusative case with common objects and articles.',
+     'A1',
+     'Grammar: accusative articles',
++    'accusative-basics',
+     12,
+     2
+   ),
+@@ -24,6 +26,7 @@ values
+     'Listen to a short exchange and answer comprehension questions.',
+     'A1',
+     'Listening: shopping dialogue',
++    'shopping-dialogue',
+     10,
+     3
+   ),
+@@ -33,6 +36,7 @@ values
+     'Practice time expressions and simple present-tense sentences.',
+     'A1',
+     'Vocabulary: daily routines',
++    'daily-routines',
+     10,
+     4
+   ),
+@@ -42,6 +46,7 @@ values
+     'Talk about family members and introduce yourself with confidence.',
+     'A1',
+     'Speaking: introductions',
++    'family-introductions',
+     11,
+     5
+   ),
+@@ -51,6 +56,7 @@ values
+     'Read and respond to a short ordering conversation in a restaurant.',
+     'A2',
+     'Listening: restaurant orders',
++    'restaurant-orders',
+     12,
+     6
+   ),
+@@ -60,7 +66,9 @@ values
+     'Build short German sentences with the correct word order.',
+     'A2',
+     'Grammar: sentence order',
++    'word-order-basics',
+     12,
+     7
+   )
+-on conflict (id) do nothing;
++on conflict (id) do update set
++  content_key = excluded.content_key;
