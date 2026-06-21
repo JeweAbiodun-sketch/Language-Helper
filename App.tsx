@@ -133,6 +133,7 @@ function buildLessonPages(content: LessonContent): LessonPage[] {
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const SERIF_FONT = Platform.select({ ios: "Georgia", android: "serif", default: "Georgia" });
+const DASHBOARD_TAB_ORDER: NavTab[] = ["dashboard", "lessons", "review", "journal", "progress"];
 
 type LessonResult = {
   lesson: Lesson;
@@ -400,6 +401,25 @@ function getLessonFollowUp(
   return lessonResult.lesson;
 }
 
+function getLessonSkipAheadOption(
+  lessonResult: LessonResult | null,
+  lessons: Lesson[]
+) {
+  if (!lessonResult || lessons.length === 0 || lessonResult.accuracy < 90) {
+    return null;
+  }
+
+  const sameTrackLessons = lessons.filter(
+    (lesson) => lesson.cefr_level === lessonResult.lesson.cefr_level
+  );
+  const ahead = sameTrackLessons.filter(
+    (lesson) => lesson.sort_order > lessonResult.lesson.sort_order
+  );
+
+  // The lesson two spots ahead - i.e. the one reachable by skipping one.
+  return ahead[1] ?? null;
+}
+
 function buildHandoffNotice(
   lessonResult: LessonResult | null,
   nextLesson: Lesson | null
@@ -458,6 +478,8 @@ export default function App() {
   const [pendingLessonFocus, setPendingLessonFocus] = useState<LessonFilter | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
   const lessonPagerRef = useRef<ScrollView>(null);
+  const dashboardPagerRef = useRef<ScrollView>(null);
+  const [dashboardPageIndex, setDashboardPageIndex] = useState(0);
   const [quizAnswers, setQuizAnswers] = useState<Array<number | null>>([]);
 
   useEffect(() => {
@@ -675,6 +697,10 @@ export default function App() {
   );
   const lessonFollowUp = useMemo(
     () => getLessonFollowUp(lessonResult ?? lastLessonResult, lessons),
+    [lessonResult, lastLessonResult, lessons]
+  );
+  const lessonSkipAhead = useMemo(
+    () => getLessonSkipAheadOption(lessonResult ?? lastLessonResult, lessons),
     [lessonResult, lastLessonResult, lessons]
   );
   const dashboardLessonSuggestion = useMemo(
@@ -1700,12 +1726,19 @@ export default function App() {
     setLessonNote("");
   }
 
+  function goToDashboardPage(index: number) {
+    const clamped = Math.max(0, Math.min(index, DASHBOARD_TAB_ORDER.length - 1));
+    setDashboardPageIndex(clamped);
+    setMainTab(DASHBOARD_TAB_ORDER[clamped]);
+    dashboardPagerRef.current?.scrollTo({ x: clamped * SCREEN_WIDTH, animated: true });
+  }
+
   function handleGoHome() {
     handleCloseLesson();
     handleCloseReview();
     handleCloseSummary();
     cancelEditingReflection();
-    setMainTab("dashboard");
+    goToDashboardPage(0);
     setMessage(null);
   }
 
@@ -1714,7 +1747,7 @@ export default function App() {
     handleCloseReview();
     handleCloseSummary();
     cancelEditingReflection();
-    setMainTab("lessons");
+    goToDashboardPage(1);
     setMessage(null);
   }
 
@@ -1722,7 +1755,7 @@ export default function App() {
     handleCloseLesson();
     handleCloseSummary();
     cancelEditingReflection();
-    setMainTab("review");
+    goToDashboardPage(2);
     setMessage(null);
     if (srsCards.length > 0) {
       handleStartReview();
@@ -1737,7 +1770,7 @@ export default function App() {
     handleCloseReview();
     handleCloseSummary();
     cancelEditingReflection();
-    setMainTab("journal");
+    goToDashboardPage(3);
     setMessage(null);
   }
 
@@ -1746,7 +1779,7 @@ export default function App() {
     handleCloseReview();
     handleCloseSummary();
     cancelEditingReflection();
-    setMainTab("progress");
+    goToDashboardPage(4);
     setMessage(null);
   }
 
@@ -1778,6 +1811,12 @@ export default function App() {
     if (!lessonFollowUp || !lessonResult) return;
     setLessonResult(null);
     handleOpenLesson(lessonFollowUp);
+  }
+
+  function handleSkipAheadLesson() {
+    if (!lessonSkipAhead || !lessonResult) return;
+    setLessonResult(null);
+    handleOpenLesson(lessonSkipAhead);
   }
 
   function handleStartReview() {
@@ -2595,8 +2634,13 @@ export default function App() {
         <ExpoStatusBar style="light" />
         <ScrollView contentContainerStyle={styles.container}>
           <View style={styles.hero}>
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>Review</Text>
+            <View style={styles.bookHeaderTopRow}>
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>Review</Text>
+              </View>
+              <Pressable onPress={handleSignOut}>
+                <Text style={styles.inlineLink}>Sign out</Text>
+              </Pressable>
             </View>
             <Text style={styles.title}>SRS review</Text>
             <Text style={styles.subtitle}>
@@ -2692,15 +2736,20 @@ export default function App() {
         <ExpoStatusBar style="light" />
         <ScrollView contentContainerStyle={styles.container}>
           <View style={styles.hero}>
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>
-                {lessonResult.correct ? "Completed" : "Needs review"}
-              </Text>
+            <View style={styles.bookHeaderTopRow}>
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>
+                  {lessonResult.correct ? "Completed" : "Needs review"}
+                </Text>
+              </View>
+              <Pressable onPress={handleSignOut}>
+                <Text style={styles.inlineLink}>Sign out</Text>
+              </Pressable>
             </View>
             <Text style={styles.title}>Lesson summary</Text>
             <Text style={styles.subtitle}>
               {lessonResult.lesson.title} is logged and your progress has been
-              updated in Supabase.
+              saved.
             </Text>
             <View style={styles.connectionPill}>
               <Text style={styles.connectionPillText}>
@@ -2759,14 +2808,18 @@ export default function App() {
             description="Your result helps pick the next lesson or a repeat pass."
           >
             <Text style={styles.summaryBoxTitle}>
-              {lessonFollowUp && lessonFollowUp.id !== lessonResult.lesson.id
-                ? `Continue with ${lessonFollowUp.title}.`
-                : "Repeat this lesson once more to lock it in."}
+              {lessonSkipAhead
+                ? `Great score - you've unlocked two lessons ahead.`
+                : lessonFollowUp && lessonFollowUp.id !== lessonResult.lesson.id
+                  ? `Continue with ${lessonFollowUp.title}.`
+                  : "Repeat this lesson once more to lock it in."}
             </Text>
             <Text style={styles.summaryBoxText}>
-              {lessonResult.correct
-                ? "You answered correctly, so the app is nudging you forward to the next lesson in this CEFR track."
-                : "A repeat gives you one more pass at the same material before moving on."}
+              {lessonSkipAhead
+                ? `Scoring 90% or higher unlocks an extra lesson. Continue normally with ${lessonFollowUp?.title ?? "the next lesson"}, or skip ahead to ${lessonSkipAhead.title} if you're feeling confident.`
+                : lessonResult.correct
+                  ? "You answered correctly, so the app is nudging you forward to the next lesson in this CEFR track."
+                  : "A repeat gives you one more pass at the same material before moving on."}
             </Text>
           </SectionCard>
 
@@ -2788,6 +2841,13 @@ export default function App() {
               }
             />
           </View>
+          {lessonSkipAhead ? (
+            <Pressable onPress={handleSkipAheadLesson}>
+              <Text style={styles.inlineLink}>
+                Skip ahead to {lessonSkipAhead.title} instead
+              </Text>
+            </Pressable>
+          ) : null}
           <TabBar activeTab={currentNavTab} onHome={handleGoHome} onLessons={handleGoLessons} onReview={handleGoReview} onJournal={handleGoJournal} onProgress={handleGoProgress} />
         </ScrollView>
       </SafeAreaView>
@@ -2798,39 +2858,65 @@ export default function App() {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" />
       <ExpoStatusBar style="light" />
-      <ScrollView contentContainerStyle={styles.container}>
+      <View style={styles.bookHeader}>
+        <View style={styles.bookHeaderTopRow}>
+          <Text style={styles.title}>Language Helper</Text>
+          <Pressable onPress={handleSignOut}>
+            <Text style={styles.inlineLink}>Sign out</Text>
+          </Pressable>
+        </View>
+        <View style={styles.bookDotsRow}>
+          {DASHBOARD_TAB_ORDER.map((tab, index) => (
+            <View
+              key={tab}
+              style={[
+                styles.bookDot,
+                index === dashboardPageIndex && styles.bookDotActive,
+              ]}
+            />
+          ))}
+        </View>
+      </View>
+
+      <ScrollView
+        ref={dashboardPagerRef}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        contentOffset={{ x: dashboardPageIndex * SCREEN_WIDTH, y: 0 }}
+        onMomentumScrollEnd={(event) => {
+          const newIndex = Math.round(
+            event.nativeEvent.contentOffset.x / SCREEN_WIDTH
+          );
+          const clamped = Math.max(0, Math.min(newIndex, DASHBOARD_TAB_ORDER.length - 1));
+          setDashboardPageIndex(clamped);
+          setMainTab(DASHBOARD_TAB_ORDER[clamped]);
+        }}
+        style={styles.bookPager}
+      >
+          <View style={[styles.bookPage, { width: SCREEN_WIDTH }]}>
+            <ScrollView contentContainerStyle={styles.bookPageContent}>
         <View style={styles.hero}>
           <View style={styles.badge}>
             <Text style={styles.badgeText}>Signed in</Text>
           </View>
           <Text style={styles.title}>Willkommen, {greeting}</Text>
           <Text style={styles.subtitle}>
-            Your profile is now connected to Supabase and ready for lesson,
-            streak, and SRS data.
+            Connected and ready for your lesson, streak, and review queue.
           </Text>
           <View style={styles.connectionPill}>
             <Text style={styles.connectionPillText}>
               {profile?.cefr_level ?? "A1"} learning path
             </Text>
           </View>
-          <View style={styles.connectionPill}>
-            <Text style={styles.connectionPillText}>
-              {syncStatusLabel}
-            </Text>
-          </View>
-          <PrimaryButton
-            label={syncQueueCount > 0 ? `Sync now (${syncQueueCount})` : "Sync now"}
-            onPress={handleManualSync}
-          />
-          <PrimaryButton label="Sign out" onPress={handleSignOut} />
         </View>
 
         {message ? <InfoBanner text={message} /> : null}
 
         <SectionCard
-          title="Profile snapshot"
-          eyebrow="Synced data"
-          description="This comes from the `profiles` table and will later drive adaptive lesson sequencing."
+          title="Your stats"
+          eyebrow="Overview"
+          description="A quick look at your streak, XP, and daily goal."
         >
           <View style={styles.heroRow}>
             <StatCard
@@ -2909,8 +2995,6 @@ export default function App() {
           </SectionCard>
         ) : null}
 
-        {mainTab === "dashboard" ? (
-          <>
             <SectionCard
               title="Review queue"
               eyebrow="Spaced repetition"
@@ -3346,11 +3430,10 @@ export default function App() {
                 ))}
               </View>
             </SectionCard>
-          </>
-        ) : null}
-
-        {mainTab === "lessons" ? (
-          <>
+            </ScrollView>
+          </View>
+          <View style={[styles.bookPage, { width: SCREEN_WIDTH }]}>
+            <ScrollView contentContainerStyle={styles.bookPageContent}>
             <SectionCard
               title="Lesson library"
               eyebrow="Browse content"
@@ -3515,11 +3598,10 @@ export default function App() {
                 disabled={!dashboardLessonSuggestion}
               />
             </SectionCard>
-          </>
-        ) : null}
-
-        {mainTab === "review" ? (
-          <>
+            </ScrollView>
+          </View>
+          <View style={[styles.bookPage, { width: SCREEN_WIDTH }]}>
+            <ScrollView contentContainerStyle={styles.bookPageContent}>
             <SectionCard
               title="Review queue"
               eyebrow="Spaced repetition"
@@ -3615,11 +3697,10 @@ export default function App() {
                 <Text style={styles.message}>{recentSessionsError}</Text>
               ) : null}
             </SectionCard>
-          </>
-        ) : null}
-
-        {mainTab === "journal" ? (
-          <>
+            </ScrollView>
+          </View>
+          <View style={[styles.bookPage, { width: SCREEN_WIDTH }]}>
+            <ScrollView contentContainerStyle={styles.bookPageContent}>
             <SectionCard
               title="Study journal"
               eyebrow="Notes"
@@ -3864,11 +3945,10 @@ export default function App() {
                 </Text>
               )}
             </SectionCard>
-          </>
-        ) : null}
-
-        {mainTab === "progress" ? (
-          <>
+            </ScrollView>
+          </View>
+          <View style={[styles.bookPage, { width: SCREEN_WIDTH }]}>
+            <ScrollView contentContainerStyle={styles.bookPageContent}>
             <SectionCard
               title="Profile at a glance"
               eyebrow="Identity"
@@ -4006,15 +4086,46 @@ export default function App() {
                 </View>
               ))}
             </SectionCard>
-          </>
-        ) : null}
-
-        <TabBar activeTab={currentNavTab} onHome={handleGoHome} onLessons={handleGoLessons} onReview={handleGoReview} onJournal={handleGoJournal} onProgress={handleGoProgress} />
+            </ScrollView>
+          </View>
       </ScrollView>
+
+      <View style={styles.bookNavRow}>
+        {dashboardPageIndex > 0 ? (
+          <Pressable
+            onPress={() => goToDashboardPage(dashboardPageIndex - 1)}
+            style={({ pressed }) => [
+              styles.bookNavButton,
+              pressed && styles.bookNavButtonPressed,
+            ]}
+          >
+            <Text style={styles.bookNavButtonText}>‹ Back</Text>
+          </Pressable>
+        ) : (
+          <View style={styles.bookNavButton} />
+        )}
+        {dashboardPageIndex < DASHBOARD_TAB_ORDER.length - 1 ? (
+          <Pressable
+            onPress={() => goToDashboardPage(dashboardPageIndex + 1)}
+            style={({ pressed }) => [
+              styles.bookNavButton,
+              styles.bookNavButtonPrimary,
+              pressed && styles.bookNavButtonPressed,
+            ]}
+          >
+            <Text style={[styles.bookNavButtonText, styles.bookNavButtonTextPrimary]}>
+              Next ›
+            </Text>
+          </Pressable>
+        ) : (
+          <View style={styles.bookNavButton} />
+        )}
+      </View>
+
+      <TabBar activeTab={currentNavTab} onHome={handleGoHome} onLessons={handleGoLessons} onReview={handleGoReview} onJournal={handleGoJournal} onProgress={handleGoProgress} />
     </SafeAreaView>
   );
 }
-
 function CenteredNotice({
   title,
   description,
