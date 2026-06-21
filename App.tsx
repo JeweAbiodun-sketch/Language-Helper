@@ -244,6 +244,13 @@ function createSyncQueueId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function getGermanTimeGreeting() {
+  const hour = new Date().getHours();
+  if (hour < 11) return "Guten\nMorgen.";
+  if (hour < 17) return "Guten\nTag.";
+  return "Guten\nAbend.";
+}
+
 function getSyncStatusLabel(queueCount: number) {
   if (!isSupabaseConfigured) {
     return "Connect Supabase to sync";
@@ -2129,120 +2136,111 @@ export default function App() {
         <StatusBar barStyle="light-content" />
         <ExpoStatusBar style="light" />
         <ScrollView contentContainerStyle={styles.container}>
+          <Skyline />
+
           <View style={styles.hero}>
             <View style={styles.badge}>
-              <Text style={styles.badgeText}>German MVP</Text>
+              <Text style={styles.badgeText}>A1 · German</Text>
             </View>
-            <Text style={styles.title}>Language Helper</Text>
+            <Text style={styles.title}>{getGermanTimeGreeting()}</Text>
             <Text style={styles.subtitle}>
-              Sign in to save your streak, SRS queue, and lesson progress.
+              Ten minutes a day, taught the way a patient teacher would, not a
+              quiz app.
             </Text>
-            <View style={styles.connectionPill}>
-              <Text style={styles.connectionPillText}>
-                Supabase connected
-              </Text>
-            </View>
           </View>
 
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>
-              {authMode === "sign-in" ? "Welcome back" : "Create your account"}
-            </Text>
-            <Text style={styles.cardDescription}>
-              {authMode === "sign-in"
-                ? "Sign in to continue your daily German practice."
-                : "Create a profile to begin with a placement test and personalized lessons."}
-            </Text>
+          <View style={styles.form}>
+            <Pressable
+              onPress={handleGoogleSignIn}
+              disabled={saving}
+              style={({ pressed }) => [
+                styles.socialButton,
+                styles.socialButtonGoogle,
+                pressed && styles.socialButtonPressed,
+              ]}
+            >
+              <Text style={styles.socialButtonTextGoogle}>
+                Continue with Google
+              </Text>
+            </Pressable>
 
-            <View style={styles.form}>
-              <Pressable
-                onPress={handleGoogleSignIn}
-                disabled={saving}
-                style={({ pressed }) => [
-                  styles.socialButton,
-                  styles.socialButtonGoogle,
-                  pressed && styles.socialButtonPressed,
-                ]}
-              >
-                <Text style={styles.socialButtonTextGoogle}>
-                  Continue with Google
-                </Text>
+            <Pressable
+              onPress={() =>
+                setMessage("Apple sign-in is coming soon - use Google or email for now.")
+              }
+              style={({ pressed }) => [
+                styles.socialButton,
+                styles.socialButtonApple,
+                pressed && styles.socialButtonPressed,
+              ]}
+            >
+              <Text style={styles.socialButtonTextApple}>
+                Continue with Apple
+              </Text>
+            </Pressable>
+
+            {!showEmailForm ? (
+              <Pressable onPress={() => setShowEmailForm(true)}>
+                <Text style={styles.inlineLink}>Continue with email</Text>
               </Pressable>
+            ) : (
+              <>
+                <View style={styles.dividerRow}>
+                  <View style={styles.dividerLine} />
+                  <Text style={styles.dividerText}>or</Text>
+                  <View style={styles.dividerLine} />
+                </View>
 
-              {!showEmailForm ? (
-                <Pressable onPress={() => setShowEmailForm(true)}>
+                <Text style={styles.cardTitle}>
+                  {authMode === "sign-in" ? "Welcome back" : "Create your account"}
+                </Text>
+
+                <LabeledInput
+                  label="Email"
+                  placeholder="you@example.com"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  value={email}
+                  onChangeText={setEmail}
+                />
+                <LabeledInput
+                  label="Password"
+                  placeholder="At least 6 characters"
+                  secureTextEntry
+                  value={password}
+                  onChangeText={setPassword}
+                />
+
+                <PrimaryButton
+                  label={
+                    saving
+                      ? "Working..."
+                      : authMode === "sign-in"
+                        ? "Sign in"
+                        : "Create account"
+                  }
+                  onPress={handleAuthSubmit}
+                  disabled={saving || !email || !password}
+                />
+
+                <Pressable
+                  onPress={() =>
+                    setAuthMode((current) =>
+                      current === "sign-in" ? "sign-up" : "sign-in"
+                    )
+                  }
+                >
                   <Text style={styles.inlineLink}>
-                    Continue with email
+                    {authMode === "sign-in"
+                      ? "Need an account? Switch to sign up."
+                      : "Already have an account? Switch to sign in."}
                   </Text>
                 </Pressable>
-              ) : (
-                <>
-                  <View style={styles.dividerRow}>
-                    <View style={styles.dividerLine} />
-                    <Text style={styles.dividerText}>or</Text>
-                    <View style={styles.dividerLine} />
-                  </View>
+              </>
+            )}
 
-                  <LabeledInput
-                    label="Email"
-                    placeholder="you@example.com"
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    value={email}
-                    onChangeText={setEmail}
-                  />
-                  <LabeledInput
-                    label="Password"
-                    placeholder="At least 6 characters"
-                    secureTextEntry
-                    value={password}
-                    onChangeText={setPassword}
-                  />
-
-                  <PrimaryButton
-                    label={
-                      saving
-                        ? "Working..."
-                        : authMode === "sign-in"
-                          ? "Sign in"
-                          : "Create account"
-                    }
-                    onPress={handleAuthSubmit}
-                    disabled={saving || !email || !password}
-                  />
-
-                  <Pressable
-                    onPress={() =>
-                      setAuthMode((current) =>
-                        current === "sign-in" ? "sign-up" : "sign-in"
-                      )
-                    }
-                  >
-                    <Text style={styles.inlineLink}>
-                      {authMode === "sign-in"
-                        ? "Need an account? Switch to sign up."
-                        : "Already have an account? Switch to sign in."}
-                    </Text>
-                  </Pressable>
-                </>
-              )}
-
-              {message ? <Text style={styles.message}>{message}</Text> : null}
-            </View>
+            {message ? <Text style={styles.message}>{message}</Text> : null}
           </View>
-
-          <SectionCard
-            title="What happens next"
-            eyebrow="MVP flow"
-            description="After auth, we can create a placement test, daily lesson plan, and SRS queue backed by Supabase."
-          >
-            <View style={styles.pillRow}>
-              <Pill label="Onboarding" />
-              <Pill label="Placement test" />
-              <Pill label="Lesson engine" />
-              <Pill label="Progress tracking" />
-            </View>
-          </SectionCard>
         </ScrollView>
       </SafeAreaView>
     );
@@ -2929,6 +2927,38 @@ export default function App() {
         </SectionCard>
 
         <SectionCard
+          title="Your book so far"
+          eyebrow="At a glance"
+          description="Tap any page to jump back into that lesson."
+        >
+          <View style={styles.tocList}>
+            {lessons.slice(0, 6).map((lesson, index) => (
+              <Pressable
+                key={lesson.id}
+                onPress={() => handleOpenLesson(lesson)}
+                style={({ pressed }) => [
+                  styles.tocRow,
+                  pressed && styles.tocRowPressed,
+                ]}
+              >
+                <Text style={styles.tocTitle} numberOfLines={1}>
+                  {lesson.title}
+                </Text>
+                <View style={styles.tocDots} />
+                <Text style={styles.tocPage}>
+                  {String(index + 1).padStart(2, "0")}
+                </Text>
+              </Pressable>
+            ))}
+            {lessons.length === 0 ? (
+              <Text style={styles.cardDescription}>
+                No lessons yet - add some in Supabase to fill this page.
+              </Text>
+            ) : null}
+          </View>
+        </SectionCard>
+
+        <SectionCard
           title="Achievements"
           eyebrow="Motivation"
           description="Small milestones that track consistency and momentum."
@@ -3578,6 +3608,7 @@ export default function App() {
               description="Next lesson at a glance."
             >
               <View style={styles.journalCard}>
+                <View style={styles.journalCardFold} />
                 <Text style={styles.journalEyebrow}>Today's page</Text>
                 <Text style={styles.journalTitle}>
                   {dashboardLessonSuggestion?.title ?? "No lesson suggestion yet"}
@@ -4243,6 +4274,37 @@ function StatCard({ label, value }: { label: string; value: string }) {
   );
 }
 
+function Skyline() {
+  const buildings = [
+    { h: 36, w: 26 },
+    { h: 58, w: 20 },
+    { h: 34, w: 28 },
+    { h: 74, w: 18 },
+    { h: 48, w: 24 },
+    { h: 64, w: 20 },
+    { h: 38, w: 30 },
+    { h: 54, w: 22 },
+    { h: 70, w: 18 },
+    { h: 44, w: 26 },
+  ];
+  return (
+    <View style={styles.skylineRow}>
+      {buildings.map((building, index) => (
+        <View
+          key={index}
+          style={[
+            styles.skylineBuilding,
+            { height: building.h, width: building.w },
+          ]}
+        >
+          <View style={styles.skylineWindow} />
+          {building.h > 50 ? <View style={styles.skylineWindow} /> : null}
+        </View>
+      ))}
+    </View>
+  );
+}
+
 function Pill({ label }: { label: string }) {
   return (
     <View style={styles.pill}>
@@ -4835,6 +4897,11 @@ const styles = StyleSheet.create({
   socialButtonGoogle: {
     backgroundColor: "#F7F2E7",
   },
+  socialButtonApple: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "rgba(247,242,231,0.18)",
+  },
   socialButtonPressed: {
     opacity: 0.85,
   },
@@ -4842,6 +4909,68 @@ const styles = StyleSheet.create({
     color: "#2A2620",
     fontSize: 15,
     fontWeight: "700",
+  },
+  socialButtonTextApple: {
+    color: "#F7F2E7",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  skylineRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "center",
+    gap: 5,
+    height: 84,
+    marginBottom: 8,
+    opacity: 0.9,
+  },
+  skylineBuilding: {
+    backgroundColor: "#0A1422",
+    borderTopLeftRadius: 3,
+    borderTopRightRadius: 3,
+    alignItems: "center",
+    paddingTop: 9,
+    gap: 6,
+  },
+  skylineWindow: {
+    width: 5,
+    height: 5,
+    borderRadius: 2,
+    backgroundColor: "#E8B563",
+    opacity: 0.85,
+  },
+  tocList: {
+    gap: 2,
+  },
+  tocRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 8,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(247,242,231,0.08)",
+  },
+  tocRowPressed: {
+    opacity: 0.6,
+  },
+  tocTitle: {
+    color: "#F7F2E7",
+    fontSize: 14,
+    fontWeight: "600",
+    flexShrink: 1,
+  },
+  tocDots: {
+    flex: 1,
+    height: 1,
+    borderBottomWidth: 1,
+    borderStyle: "dotted",
+    borderBottomColor: "#4A5468",
+    marginBottom: 3,
+  },
+  tocPage: {
+    color: "#8893A6",
+    fontSize: 11,
+    fontWeight: "600",
   },
   dividerRow: {
     flexDirection: "row",
@@ -5136,6 +5265,23 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 14,
     gap: 4,
+    position: "relative",
+    overflow: "hidden",
+  },
+  journalCardFold: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    width: 0,
+    height: 0,
+    borderTopWidth: 0,
+    borderLeftWidth: 0,
+    borderRightWidth: 22,
+    borderBottomWidth: 22,
+    borderRightColor: "#DCD3BC",
+    borderBottomColor: "transparent",
+    borderTopColor: "transparent",
+    borderLeftColor: "transparent",
   },
   journalEyebrow: {
     color: "#9A6B2E",
