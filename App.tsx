@@ -31,6 +31,8 @@ import {
   type QuizQuestion,
 } from "./src/content/lessonContent";
 import LessonVideo from "./src/components/LessonVideo";
+import SingAlong from "./src/components/SingAlong";
+import { getWeeklySong, weeklySongs } from "./src/content/weeklySongs";
 
 type Profile = {
   id: string;
@@ -149,7 +151,7 @@ type Achievement = {
 };
 
 type AuthMode = "sign-in" | "sign-up";
-type Screen = "auth" | "dashboard" | "lesson" | "review" | "summary";
+type Screen = "auth" | "dashboard" | "lesson" | "review" | "summary" | "song";
 type NavTab = "dashboard" | "lessons" | "review" | "journal" | "progress";
 type JournalSort = "newest" | "oldest";
 type JournalTag = "all" | "grammar" | "vocabulary" | "speaking" | "listening" | "review";
@@ -487,6 +489,7 @@ export default function App() {
   const lessonPagerRef = useRef<ScrollView>(null);
   const dashboardPagerRef = useRef<ScrollView>(null);
   const [dashboardPageIndex, setDashboardPageIndex] = useState(0);
+  const [activeSongId, setActiveSongId] = useState<string | null>(null);
   const [quizAnswers, setQuizAnswers] = useState<Array<number | null>>([]);
 
   useEffect(() => {
@@ -560,7 +563,9 @@ export default function App() {
         ? "lesson"
         : activeReviewIndex !== null
           ? "review"
-          : "dashboard";
+          : activeSongId
+            ? "song"
+            : "dashboard";
   const currentNavTab: NavTab = screen === "dashboard"
     ? mainTab
     : screen === "review"
@@ -1740,10 +1745,20 @@ export default function App() {
     dashboardPagerRef.current?.scrollTo({ x: clamped * SCREEN_WIDTH, animated: true });
   }
 
+  function handleOpenSingAlong(songId: string) {
+    setActiveSongId(songId);
+    setMessage(null);
+  }
+
+  function handleCloseSingAlong() {
+    setActiveSongId(null);
+  }
+
   function handleGoHome() {
     handleCloseLesson();
     handleCloseReview();
     handleCloseSummary();
+    handleCloseSingAlong();
     cancelEditingReflection();
     goToDashboardPage(0);
     setMessage(null);
@@ -1753,6 +1768,7 @@ export default function App() {
     handleCloseLesson();
     handleCloseReview();
     handleCloseSummary();
+    handleCloseSingAlong();
     cancelEditingReflection();
     goToDashboardPage(1);
     setMessage(null);
@@ -1761,6 +1777,7 @@ export default function App() {
   function handleGoReview() {
     handleCloseLesson();
     handleCloseSummary();
+    handleCloseSingAlong();
     cancelEditingReflection();
     goToDashboardPage(2);
     setMessage(null);
@@ -1776,6 +1793,7 @@ export default function App() {
     handleCloseLesson();
     handleCloseReview();
     handleCloseSummary();
+    handleCloseSingAlong();
     cancelEditingReflection();
     goToDashboardPage(3);
     setMessage(null);
@@ -1785,6 +1803,7 @@ export default function App() {
     handleCloseLesson();
     handleCloseReview();
     handleCloseSummary();
+    handleCloseSingAlong();
     cancelEditingReflection();
     goToDashboardPage(4);
     setMessage(null);
@@ -2623,6 +2642,45 @@ export default function App() {
     );
   }
 
+  if (screen === "song" && activeSongId) {
+    const song = getWeeklySong(activeSongId);
+
+    if (!song) {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <CenteredNotice
+            title="Song not found"
+            description="This song isn't available yet."
+          />
+          <PrimaryButton label="Back to dashboard" onPress={handleCloseSingAlong} />
+        </SafeAreaView>
+      );
+    }
+
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="light-content" />
+        <ExpoStatusBar style="light" />
+        <ScrollView contentContainerStyle={styles.container}>
+          <View style={styles.hero}>
+            <View style={styles.bookHeaderTopRow}>
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{song.weekLabel}</Text>
+              </View>
+              <Pressable onPress={handleCloseSingAlong}>
+                <Text style={styles.inlineLink}>Close</Text>
+              </Pressable>
+            </View>
+            <Text style={styles.title}>{song.title}</Text>
+            <Text style={styles.subtitle}>{song.description}</Text>
+          </View>
+
+          <SingAlong song={song} />
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   if (screen === "review") {
     const card = activeReviewIndex !== null ? srsCards[activeReviewIndex] : null;
 
@@ -2858,7 +2916,7 @@ export default function App() {
       <ExpoStatusBar style="light" />
       <View style={styles.bookHeader}>
         <View style={styles.bookHeaderTopRow}>
-          <Text style={styles.title}>Language Helper</Text>
+          <Text style={styles.bookHeaderBrand} numberOfLines={1}>Language Helper</Text>
           <Pressable onPress={handleSignOut}>
             <Text style={styles.inlineLink}>Sign out</Text>
           </Pressable>
@@ -2898,7 +2956,7 @@ export default function App() {
           <View style={styles.badge}>
             <Text style={styles.badgeText}>Signed in</Text>
           </View>
-          <Text style={styles.title}>Willkommen, {greeting}</Text>
+          <Text style={styles.title} numberOfLines={2}>Willkommen, {greeting}</Text>
           <Text style={styles.subtitle}>
             Connected and ready for your lesson, streak, and review queue.
           </Text>
@@ -2956,6 +3014,21 @@ export default function App() {
               </Text>
             ) : null}
           </View>
+        </SectionCard>
+
+        <SectionCard
+          title="This week's song"
+          eyebrow="Sing along"
+          description={weeklySongs[0]?.description ?? "A short song to lock in this week's words."}
+        >
+          <Pressable onPress={() => handleOpenSingAlong(weeklySongs[0]?.id ?? "")}>
+            <View style={styles.journalCard}>
+              <View style={styles.journalCardFold} />
+              <Text style={styles.journalEyebrow}>{weeklySongs[0]?.weekLabel ?? "Week 1"}</Text>
+              <Text style={styles.journalTitle}>{weeklySongs[0]?.title ?? "Sing along"}</Text>
+              <Text style={styles.journalDescription}>Tap to open the lyrics and press play.</Text>
+            </View>
+          </Pressable>
         </SectionCard>
 
         <SectionCard
@@ -4513,8 +4586,8 @@ const styles = StyleSheet.create({
   },
   title: {
     color: "#F7F2E7",
-    fontSize: 31,
-    lineHeight: 37,
+    fontSize: 25,
+    lineHeight: 30,
     fontWeight: "800",
     marginBottom: 8,
     fontFamily: SERIF_FONT,
@@ -5196,6 +5269,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+  },
+  bookHeaderBrand: {
+    color: "#F7F2E7",
+    fontSize: 19,
+    fontWeight: "800",
+    fontFamily: SERIF_FONT,
+    flexShrink: 1,
+    marginRight: 12,
   },
   bookDotsRow: {
     flexDirection: "row",
