@@ -32,6 +32,7 @@ import {
 } from "./src/content/lessonContent";
 import LessonVideo from "./src/components/LessonVideo";
 import SingAlong from "./src/components/SingAlong";
+import { grammarRules } from "./src/content/grammarOverview";
 import { getWeeklySong, weeklySongs, type WeeklySong } from "./src/content/weeklySongs";
 
 type Profile = {
@@ -151,7 +152,7 @@ type Achievement = {
 };
 
 type AuthMode = "sign-in" | "sign-up";
-type Screen = "auth" | "dashboard" | "lesson" | "review" | "summary" | "song";
+type Screen = "auth" | "dashboard" | "lesson" | "review" | "summary" | "song" | "grammar";
 type NavTab = "dashboard" | "lessons" | "review" | "journal" | "progress";
 type JournalSort = "newest" | "oldest";
 type JournalTag = "all" | "grammar" | "vocabulary" | "speaking" | "listening" | "review";
@@ -490,6 +491,7 @@ export default function App() {
   const dashboardPagerRef = useRef<ScrollView>(null);
   const [dashboardPageIndex, setDashboardPageIndex] = useState(0);
   const [activeSongId, setActiveSongId] = useState<string | null>(null);
+  const [showGrammarOverview, setShowGrammarOverview] = useState(false);
   const [quizAnswers, setQuizAnswers] = useState<Array<number | null>>([]);
 
   useEffect(() => {
@@ -565,7 +567,9 @@ export default function App() {
           ? "review"
           : activeSongId
             ? "song"
-            : "dashboard";
+            : showGrammarOverview
+              ? "grammar"
+              : "dashboard";
   const currentNavTab: NavTab = screen === "dashboard"
     ? mainTab
     : screen === "review"
@@ -1754,6 +1758,15 @@ export default function App() {
     setActiveSongId(null);
   }
 
+  function handleOpenGrammarOverview() {
+    setShowGrammarOverview(true);
+    setMessage(null);
+  }
+
+  function handleCloseGrammarOverview() {
+    setShowGrammarOverview(false);
+  }
+
   async function handleAddSongVocabToReview(song: WeeklySong) {
     if (!supabase || !session?.user) {
       setMessage("Supabase is not ready yet.");
@@ -1801,6 +1814,7 @@ export default function App() {
     handleCloseReview();
     handleCloseSummary();
     handleCloseSingAlong();
+    handleCloseGrammarOverview();
     cancelEditingReflection();
     goToDashboardPage(0);
     setMessage(null);
@@ -1811,6 +1825,7 @@ export default function App() {
     handleCloseReview();
     handleCloseSummary();
     handleCloseSingAlong();
+    handleCloseGrammarOverview();
     cancelEditingReflection();
     goToDashboardPage(1);
     setMessage(null);
@@ -1820,6 +1835,7 @@ export default function App() {
     handleCloseLesson();
     handleCloseSummary();
     handleCloseSingAlong();
+    handleCloseGrammarOverview();
     cancelEditingReflection();
     goToDashboardPage(2);
     setMessage(null);
@@ -1836,6 +1852,7 @@ export default function App() {
     handleCloseReview();
     handleCloseSummary();
     handleCloseSingAlong();
+    handleCloseGrammarOverview();
     cancelEditingReflection();
     goToDashboardPage(3);
     setMessage(null);
@@ -1846,6 +1863,7 @@ export default function App() {
     handleCloseReview();
     handleCloseSummary();
     handleCloseSingAlong();
+    handleCloseGrammarOverview();
     cancelEditingReflection();
     goToDashboardPage(4);
     setMessage(null);
@@ -2680,6 +2698,46 @@ export default function App() {
         </View>
 
         <TabBar activeTab={currentNavTab} onHome={handleGoHome} onLessons={handleGoLessons} onReview={handleGoReview} onJournal={handleGoJournal} onProgress={handleGoProgress} />
+      </SafeAreaView>
+    );
+  }
+
+  if (screen === "grammar") {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="light-content" />
+        <ExpoStatusBar style="light" />
+        <ScrollView contentContainerStyle={styles.container}>
+          <View style={styles.hero}>
+            <View style={styles.bookHeaderTopRow}>
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>Reference</Text>
+              </View>
+              <Pressable onPress={handleCloseGrammarOverview}>
+                <Text style={styles.inlineLink}>Close</Text>
+              </Pressable>
+            </View>
+            <Text style={styles.title}>Grammar overview</Text>
+            <Text style={styles.subtitle}>
+              Every grammar rule taught so far, collected in one place to flip
+              back to.
+            </Text>
+          </View>
+
+          {grammarRules.map((rule) => (
+            <SectionCard
+              key={rule.id}
+              title={rule.title}
+              eyebrow={`From: ${rule.fromLesson}`}
+              description={rule.summary}
+            >
+              <View style={styles.learnNoteCard}>
+                <Text style={styles.learnNoteHeading}>Example</Text>
+                <Text style={styles.learnNoteBody}>{rule.example}</Text>
+              </View>
+            </SectionCard>
+          ))}
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -4145,6 +4203,17 @@ export default function App() {
             </SectionCard>
 
             <SectionCard
+              title="Grammar overview"
+              eyebrow="Reference"
+              description="Every grammar rule taught so far, collected in one place."
+            >
+              <PrimaryButton
+                label="Open grammar overview"
+                onPress={handleOpenGrammarOverview}
+              />
+            </SectionCard>
+
+            <SectionCard
               title="Profile settings"
               eyebrow="Your plan"
               description="Keep your name, level, and daily goal aligned with your current routine."
@@ -5358,11 +5427,16 @@ const styles = StyleSheet.create({
   },
   bookPage: {
     flex: 1,
+    padding: 12,
   },
   bookPageContent: {
     flexGrow: 1,
-    padding: 20,
+    padding: 18,
     gap: 14,
+    backgroundColor: "rgba(247,242,231,0.025)",
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "rgba(247,242,231,0.08)",
   },
   bookNavRow: {
     flexDirection: "row",
