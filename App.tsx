@@ -32,7 +32,7 @@ import {
 } from "./src/content/lessonContent";
 import LessonVideo from "./src/components/LessonVideo";
 import SingAlong from "./src/components/SingAlong";
-import { getWeeklySong, weeklySongs } from "./src/content/weeklySongs";
+import { getWeeklySong, weeklySongs, type WeeklySong } from "./src/content/weeklySongs";
 
 type Profile = {
   id: string;
@@ -1754,6 +1754,48 @@ export default function App() {
     setActiveSongId(null);
   }
 
+  async function handleAddSongVocabToReview(song: WeeklySong) {
+    if (!supabase || !session?.user) {
+      setMessage("Supabase is not ready yet.");
+      return;
+    }
+
+    const existingPrompts = new Set(srsCards.map((card) => card.prompt));
+    const newCards = song.vocabCards.filter(
+      (card) => !existingPrompts.has(card.prompt)
+    );
+
+    if (newCards.length === 0) {
+      setMessage("This week's words are already in your review queue.");
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("srs_cards")
+      .insert(
+        newCards.map((card) => ({
+          user_id: session.user.id,
+          prompt: card.prompt,
+          answer: card.answer,
+          srs_stage: 0,
+          due_at: nowIso,
+          last_reviewed_at: null,
+        }))
+      )
+      .select();
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    if (data) {
+      setSrsCards((current) => [...current, ...(data as SrsCard[])]);
+    }
+    setMessage(`Added ${newCards.length} word${newCards.length === 1 ? "" : "s"} to your review queue.`);
+  }
+
   function handleGoHome() {
     handleCloseLesson();
     handleCloseReview();
@@ -2665,7 +2707,7 @@ export default function App() {
           <View style={styles.hero}>
             <View style={styles.bookHeaderTopRow}>
               <View style={styles.badge}>
-                <Text style={styles.badgeText}>{song.weekLabel}</Text>
+                <Text style={styles.badgeText}>{song.weekLabel} · {song.level}</Text>
               </View>
               <Pressable onPress={handleCloseSingAlong}>
                 <Text style={styles.inlineLink}>Close</Text>
@@ -2676,6 +2718,18 @@ export default function App() {
           </View>
 
           <SingAlong song={song} />
+
+          <SectionCard
+            title={song.culturalNote.title}
+            eyebrow="Cultural note"
+            description={song.culturalNote.body}
+          />
+
+          <PrimaryButton
+            label="Add this week's words to review"
+            onPress={() => handleAddSongVocabToReview(song)}
+          />
+          {message ? <InfoBanner text={message} /> : null}
         </ScrollView>
       </SafeAreaView>
     );
@@ -4326,14 +4380,14 @@ function SectionCard({
   eyebrow: string;
   title: string;
   description: string;
-  children: React.ReactNode;
+  children?: React.ReactNode;
 }) {
   return (
     <View style={styles.card}>
       <Text style={styles.eyebrow}>{eyebrow}</Text>
       <Text style={styles.cardTitle}>{title}</Text>
       <Text style={styles.cardDescription}>{description}</Text>
-      <View style={styles.cardBody}>{children}</View>
+      {children ? <View style={styles.cardBody}>{children}</View> : null}
     </View>
   );
 }
