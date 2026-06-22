@@ -138,55 +138,6 @@ const SCREEN_WIDTH = Dimensions.get("window").width;
 const SERIF_FONT = Platform.select({ ios: "Georgia", android: "serif", default: "Georgia" });
 const DASHBOARD_TAB_ORDER: NavTab[] = ["dashboard", "lessons", "review", "journal", "progress"];
 
-type WelcomePage = {
-  eyebrow: string;
-  title: string;
-  body: string;
-};
-
-const WELCOME_PAGES: WelcomePage[] = [
-  {
-    eyebrow: "Getting around",
-    title: "Five tabs, one book",
-    body: "Across the bottom of the app are five tabs: Home, Lessons, Review, Journal, and Progress. Tap a tab directly, or swipe left and right to move between them - they're all part of one continuous book.",
-  },
-  {
-    eyebrow: "Your Home screen",
-    title: "Your daily starting point",
-    body: "Home shows your stats (streak, XP, daily goal), a quick list of your lessons to jump back into, this week's sing-along song, and the achievements you've unlocked.",
-  },
-  {
-    eyebrow: "Taking a lesson",
-    title: "Watch, learn, practice",
-    body: "Each lesson flows like flipping pages: Watch & learn, then Practice with a few quick questions, then your History on this lesson, then a wrap-up. Score 90% or higher and you can skip ahead an extra lesson if you're feeling confident.",
-  },
-  {
-    eyebrow: "Review",
-    title: "Spaced repetition",
-    body: "The Review tab is your flashcard queue. Words come back on a schedule built to help them stick - answer correctly and a word shows up less often; get it wrong and it comes back sooner.",
-  },
-  {
-    eyebrow: "This week's song",
-    title: "Sing the vocabulary in",
-    body: "A short original song built around the week's words, with lyrics that highlight as it plays and a few fill-in-the-blank exercises. One tap sends the song's vocabulary straight into your Review queue.",
-  },
-  {
-    eyebrow: "Journal",
-    title: "Your own notes",
-    body: "A space to jot down reflections or anything worth remembering. Notes you leave after a lesson show up here too.",
-  },
-  {
-    eyebrow: "Progress",
-    title: "The bigger picture",
-    body: "Streaks, accuracy trends, and a Grammar overview collecting every rule taught so far - handy for a quick refresher without re-watching a whole lesson. Your name, level, and daily goal can be changed here anytime.",
-  },
-  {
-    eyebrow: "One last thing",
-    title: "Ten minutes a day",
-    body: "Short, consistent sessions beat long, occasional ones. Don't skip Review - that's where words actually stick. And when a question trips you up, the hint is there to help you reason it out.",
-  },
-];
-
 type LessonResult = {
   lesson: Lesson;
   correct: boolean;
@@ -201,7 +152,7 @@ type Achievement = {
 };
 
 type AuthMode = "sign-in" | "sign-up";
-type Screen = "auth" | "welcome" | "dashboard" | "lesson" | "review" | "summary" | "song" | "grammar";
+type Screen = "auth" | "dashboard" | "lesson" | "review" | "summary" | "song" | "grammar";
 type NavTab = "dashboard" | "lessons" | "review" | "journal" | "progress";
 type JournalSort = "newest" | "oldest";
 type JournalTag = "all" | "grammar" | "vocabulary" | "speaking" | "listening" | "review";
@@ -541,8 +492,6 @@ export default function App() {
   const [dashboardPageIndex, setDashboardPageIndex] = useState(0);
   const [activeSongId, setActiveSongId] = useState<string | null>(null);
   const [showGrammarOverview, setShowGrammarOverview] = useState(false);
-  const [welcomePageIndex, setWelcomePageIndex] = useState(0);
-  const welcomePagerRef = useRef<ScrollView>(null);
   const [quizAnswers, setQuizAnswers] = useState<Array<number | null>>([]);
 
   useEffect(() => {
@@ -610,19 +559,17 @@ export default function App() {
   const [handoffNotice, setHandoffNotice] = useState<string | null>(null);
   const screen: Screen = !session
     ? "auth"
-    : profile && !profile.onboarding_completed
-      ? "welcome"
-      : lessonResult
-        ? "summary"
-        : activeLesson
-          ? "lesson"
-          : activeReviewIndex !== null
-            ? "review"
-            : activeSongId
-              ? "song"
-              : showGrammarOverview
-                ? "grammar"
-                : "dashboard";
+    : lessonResult
+      ? "summary"
+      : activeLesson
+        ? "lesson"
+        : activeReviewIndex !== null
+          ? "review"
+          : activeSongId
+            ? "song"
+            : showGrammarOverview
+              ? "grammar"
+              : "dashboard";
   const currentNavTab: NavTab = screen === "dashboard"
     ? mainTab
     : screen === "review"
@@ -1270,6 +1217,55 @@ export default function App() {
   }, [session]);
 
   useEffect(() => {
+    if (!supabase || !session?.user || !profile) return;
+    if (profile.onboarding_completed) return;
+
+    const client = supabase;
+    const userId = session.user.id;
+    let cancelled = false;
+
+    async function autoCompleteOnboarding() {
+      const { error } = await client
+        .from("profiles")
+        .update({ onboarding_completed: true })
+        .eq("id", userId);
+
+      if (cancelled || error) return;
+
+      const starterCards = [
+        {
+          user_id: userId,
+          prompt: "What is the polite phrase for ordering coffee?",
+          answer: "Guten Tag, ich haette gern Kaffee",
+          srs_stage: 0,
+          due_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+          last_reviewed_at: null,
+        },
+        {
+          user_id: userId,
+          prompt: "Which article fits Brot in the accusative?",
+          answer: "den Brot",
+          srs_stage: 0,
+          due_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+          last_reviewed_at: null,
+        },
+      ];
+      await client.from("srs_cards").insert(starterCards);
+
+      if (cancelled) return;
+      setProfile((current) =>
+        current ? { ...current, onboarding_completed: true } : current
+      );
+    }
+
+    autoCompleteOnboarding();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user?.id, profile?.onboarding_completed]);
+
+  useEffect(() => {
     if (!session?.user?.id || !supabase) return;
 
     flushSyncQueue(session.user.id);
@@ -1760,51 +1756,6 @@ export default function App() {
 
   function handleCloseSingAlong() {
     setActiveSongId(null);
-  }
-
-  async function handleFinishWelcome() {
-    if (!supabase || !session?.user) {
-      setMessage("Supabase is not ready yet.");
-      return;
-    }
-
-    const client = supabase;
-    const userId = session.user.id;
-
-    const { error } = await client
-      .from("profiles")
-      .update({ onboarding_completed: true })
-      .eq("id", userId);
-
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-
-    const starterCards = [
-      {
-        user_id: userId,
-        prompt: "What is the polite phrase for ordering coffee?",
-        answer: "Guten Tag, ich haette gern Kaffee",
-        srs_stage: 0,
-        due_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-        last_reviewed_at: null,
-      },
-      {
-        user_id: userId,
-        prompt: "Which article fits Brot in the accusative?",
-        answer: "den Brot",
-        srs_stage: 0,
-        due_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-        last_reviewed_at: null,
-      },
-    ];
-    await client.from("srs_cards").insert(starterCards);
-
-    setProfile((current) =>
-      current ? { ...current, onboarding_completed: true } : current
-    );
-    setWelcomePageIndex(0);
   }
 
   function handleOpenGrammarOverview() {
@@ -2370,110 +2321,6 @@ export default function App() {
             {message ? <Text style={styles.message}>{message}</Text> : null}
           </View>
         </ScrollView>
-      </SafeAreaView>
-    );
-  }
-
-  if (screen === "welcome") {
-    const safeWelcomeIndex = Math.min(welcomePageIndex, WELCOME_PAGES.length - 1);
-    const isLastWelcomePage = safeWelcomeIndex === WELCOME_PAGES.length - 1;
-
-    function goToWelcomePage(index: number) {
-      const clamped = Math.max(0, Math.min(index, WELCOME_PAGES.length - 1));
-      setWelcomePageIndex(clamped);
-      welcomePagerRef.current?.scrollTo({ x: clamped * SCREEN_WIDTH, animated: true });
-    }
-
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <StatusBar barStyle="light-content" />
-        <ExpoStatusBar style="light" />
-        <View style={styles.bookHeader}>
-          <View style={styles.bookHeaderTopRow}>
-            <Text style={styles.bookHeaderBrand} numberOfLines={1}>Welcome</Text>
-          </View>
-          <View style={styles.bookDotsRow}>
-            {WELCOME_PAGES.map((_, index) => (
-              <View
-                key={index}
-                style={[
-                  styles.bookDot,
-                  index === safeWelcomeIndex && styles.bookDotActive,
-                ]}
-              />
-            ))}
-          </View>
-        </View>
-
-        <ScrollView
-          ref={welcomePagerRef}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          contentOffset={{ x: safeWelcomeIndex * SCREEN_WIDTH, y: 0 }}
-          onMomentumScrollEnd={(event) => {
-            const newIndex = Math.round(
-              event.nativeEvent.contentOffset.x / SCREEN_WIDTH
-            );
-            setWelcomePageIndex(
-              Math.max(0, Math.min(newIndex, WELCOME_PAGES.length - 1))
-            );
-          }}
-          style={styles.bookPager}
-        >
-          {WELCOME_PAGES.map((page, index) => (
-            <View key={index} style={[styles.bookPage, { width: SCREEN_WIDTH }]}>
-              <ScrollView contentContainerStyle={styles.bookPageContent}>
-                <Text style={styles.eyebrow}>{page.eyebrow}</Text>
-                <Text style={styles.title}>{page.title}</Text>
-                <Text style={styles.cardDescription}>{page.body}</Text>
-              </ScrollView>
-            </View>
-          ))}
-        </ScrollView>
-
-        <View style={styles.bookNavRow}>
-          {safeWelcomeIndex > 0 ? (
-            <Pressable
-              onPress={() => goToWelcomePage(safeWelcomeIndex - 1)}
-              style={({ pressed }) => [
-                styles.bookNavButton,
-                pressed && styles.bookNavButtonPressed,
-              ]}
-            >
-              <Text style={styles.bookNavButtonText}>‹ Back</Text>
-            </Pressable>
-          ) : (
-            <View style={styles.bookNavButton} />
-          )}
-          {isLastWelcomePage ? (
-            <Pressable
-              onPress={handleFinishWelcome}
-              style={({ pressed }) => [
-                styles.bookNavButton,
-                styles.bookNavButtonPrimary,
-                pressed && styles.bookNavButtonPressed,
-              ]}
-            >
-              <Text style={[styles.bookNavButtonText, styles.bookNavButtonTextPrimary]}>
-                Get started
-              </Text>
-            </Pressable>
-          ) : (
-            <Pressable
-              onPress={() => goToWelcomePage(safeWelcomeIndex + 1)}
-              style={({ pressed }) => [
-                styles.bookNavButton,
-                styles.bookNavButtonPrimary,
-                pressed && styles.bookNavButtonPressed,
-              ]}
-            >
-              <Text style={[styles.bookNavButtonText, styles.bookNavButtonTextPrimary]}>
-                Next ›
-              </Text>
-            </Pressable>
-          )}
-        </View>
       </SafeAreaView>
     );
   }
